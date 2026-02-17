@@ -2,22 +2,21 @@
 High-Performance MCQ Generator with intelligent filtering and batch processing.
 """
 
-import logging
-import hashlib
 import asyncio
-from typing import Optional
-from datetime import datetime
-from dataclasses import dataclass, asdict
-import uuid
+import hashlib
+import logging
 import random
+import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime
 
 from datasets import load_dataset
 
-from .state_manager import StateManager
 from .cache_manager import CacheManager, DuplicateDetector
-from .provider_client import ProviderClient
-from .filters import DocumentFilter, QualityScorer
 from .config import config
+from .filters import DocumentFilter, QualityScorer
+from .provider_client import ProviderClient
+from .state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,9 @@ class MCQMetadata:
     timestamp: str
     difficulty: str
     topic_category: str
-    quality_score: float
+    quality_score: float = 0.0
+    question_type: str = "factual"
+    model_name: str = "gpt-4"
 
 
 @dataclass
@@ -62,10 +63,14 @@ class MCQ:
     explanation: str
     metadata: MCQMetadata
     source_text: str
+    question_hash: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
-        return {**asdict(self), "metadata": asdict(self.metadata)}
+        data = asdict(self)
+        if not self.question_hash:
+            data["question_hash"] = hashlib.sha256(self.question.encode()).hexdigest()
+        return data
 
 
 class MCQGenerator:
@@ -80,7 +85,7 @@ class MCQGenerator:
 
     def __init__(
         self,
-        provider_url: Optional[str] = None,
+        provider_url: str | None = None,
         cache_dir: str = ".mcq_cache",
         db_path: str = "mcq_state.duckdb",
         checkpoint_interval: int = 10,
@@ -103,7 +108,7 @@ class MCQGenerator:
         dataset_split: str = "train",
         text_column: str = "text",
         sample_randomly: bool = True,
-        resume_job_id: Optional[str] = None,
+        resume_job_id: str | None = None,
     ):
         """
         Generate MCQs from a HuggingFace dataset with pause/resume support.
@@ -150,13 +155,26 @@ class MCQGenerator:
             except Exception as e:
                 logger.warning(f"Failed to update total_documents in state: {e}")
 
-            if sample_randomly:
-                indices = random.sample(
-                    range(len(dataset)), min(target_questions * 3, len(dataset))
-                )
+            # Process all documents when target is unlimited (0) or very large
+            # Otherwise limit to target_questions * 3 as a buffer for retries
+            if target_questions <= 0 or target_questions >= len(dataset):
+                # Unlimited mode: process all documents
+                if sample_randomly:
+                    indices = random.sample(range(len(dataset)), len(dataset))
+                else:
+                    indices = list(range(start_index, len(dataset)))
+                logger.info(f"Unlimited mode: Will process all {len(indices)} documents")
             else:
-                indices = list(
-                    range(start_index, min(start_index + target_questions * 3, len(dataset)))
+                # Limited mode: process target_questions * 3 documents max
+                if sample_randomly:
+                    indices = random.sample(
+                        range(len(dataset)), min(target_questions * 3, len(dataset))
+                    )
+                else:
+                    target_docs = target_questions * 3
+                    indices = list(range(start_index, min(start_index + target_docs, len(dataset))))
+                logger.info(
+                    f"Limited mode: Target {target_questions} MCQs, will process up to {len(indices)} documents"
                 )
 
             # counters initialized above before try/except
@@ -171,9 +189,23 @@ class MCQGenerator:
             backoff_trigger = config.BACKOFF_TRIGGER
 
             for idx in indices:
-                if generated_count >= target_questions:
+                # Periodic check for job cancellation/pause in the database
+                if total_processed % 5 == 0:
+                    try:
+                        current_status = self.state.get_job_progress(job_id).get("status")
+                        if current_status not in ("running", "pending"):
+                            logger.info(
+                                f"Job {job_id} status is {current_status}, stopping generation loop."
+                            )
+                            break
+                    except Exception as e:
+                        logger.warning(f"Could not check job status for {job_id}: {e}")
+
+                if target_questions > 0 and generated_count >= target_questions:
                     logger.info(f"Reached target: {generated_count} MCQs generated")
                     break
+
+                await asyncio.sleep(0)
 
                 total_processed += 1
 
@@ -199,7 +231,15 @@ class MCQGenerator:
                             f"Consecutive failures: {consecutive_failures}. "
                             f"Sleeping for {backoff_seconds}s before retrying."
                         )
-                        await asyncio.sleep(backoff_seconds)
+                        remaining = backoff_seconds
+                        check_interval = 5
+                        while remaining > 0:
+                            try:
+                                await asyncio.sleep(min(remaining, check_interval))
+                            except asyncio.CancelledError:
+                                logger.info("Sleep interrupted by cancellation")
+                                raise
+                            remaining -= check_interval
                         backoff_seconds = min(
                             backoff_seconds * backoff_multiplier, max_backoff_seconds
                         )
@@ -243,7 +283,7 @@ class MCQGenerator:
                             retry_attempts += 1
                             if config.COUNT_CONTENT_FAILURES:
                                 consecutive_failures += 1
-                            if consecutive_failures % 10 == 0:
+                            if consecutive_failures > 0 and consecutive_failures % 10 == 0:
                                 logger.warning(
                                     f"Consecutive failures: {consecutive_failures}/{failure_limit or 'N/A'}"
                                 )
@@ -263,7 +303,10 @@ class MCQGenerator:
 
             # Completed processing indices
             self.state.update_job_status(job_id, "completed")
-            logger.info(f"Job {job_id} completed: {generated_count} MCQs generated")
+            docs_processed = len(processed_indices)
+            logger.info(
+                f"Job {job_id} completed: {generated_count} MCQs generated from {docs_processed}/{len(dataset)} documents ({docs_processed / len(dataset) * 100:.1f}%)"
+            )
 
         except (KeyboardInterrupt, asyncio.CancelledError) as e:
             # User-requested stop (Ctrl-C) or task cancellation. Persist a
@@ -311,7 +354,7 @@ class MCQGenerator:
 
     async def _process_document(
         self, text: str, document_index: int, dataset_name: str, job_id: str
-    ) -> Optional[MCQ]:
+    ) -> MCQ | None:
         """Process a single document through the pipeline."""
         if not self.filter.should_process(text):
             logger.debug(f"Document {document_index} filtered out")
@@ -347,7 +390,7 @@ class MCQGenerator:
             quality_score = 50.0  # Fallback score
         mcq.metadata.quality_score = quality_score
 
-        logger.info(f"Generated MCQ with quality score: {quality_score}")
+        logger.info(f"Generated MCQ with quality score: {quality_score:.1f}")
 
         if quality_score >= 70:
             self.cache.set_mcq(text, mcq.to_dict(), quality_score)
@@ -365,9 +408,7 @@ class MCQGenerator:
 
         return mcq
 
-    async def _generate_mcq(
-        self, text: str, document_index: int, dataset_name: str
-    ) -> Optional[MCQ]:
+    async def _generate_mcq(self, text: str, document_index: int, dataset_name: str) -> MCQ | None:
         """Generate MCQ using LLM with few-shot examples."""
         examples = self.cache.get_best_examples(n=2)
 
@@ -388,7 +429,7 @@ class MCQGenerator:
             except Exception as e:
                 # Treat malformed provider responses as infrastructure issues so we
                 # retry the SAME document instead of counting them as a content failure.
-                raise InfrastructureError(f"Malformed provider response: {e}")
+                raise InfrastructureError(f"Malformed provider response: {e}") from e
 
             mcq = self._parse_response(content, text, f"{dataset_name}_{document_index}")
 
@@ -408,6 +449,7 @@ class MCQGenerator:
             # it toward consecutive content failures.
             try:
                 import httpx
+
                 from .provider_client import CircuitBreakerOpen
 
                 if isinstance(e, (httpx.HTTPError, CircuitBreakerOpen)):
@@ -419,7 +461,7 @@ class MCQGenerator:
                     or "connection" in str(e).lower()
                     or "timeout" in str(e).lower()
                 ):
-                    raise InfrastructureError(str(e))
+                    raise InfrastructureError(str(e)) from e
 
             if isinstance(e, InfrastructureError):
                 raise
@@ -459,44 +501,128 @@ NAMES: [names]
 PLACES: [places]
 DATES: [dates]
 EVENTS: [events]
+QUESTION_TYPE: [factual/conceptual/application/analysis/scenario]
 DIFFICULTY: [Easy/Medium/Hard]
 TOPIC: [topic]
 """
 
     def _format_example(self, example: dict) -> str:
         """Format an example MCQ for the prompt."""
-        return f"""Question: {example["question"]}
+        return f"""QUESTION: {example["question"]}
 A) {example["options"][0]}
 B) {example["options"][1]}
 C) {example["options"][2]}
-Correct: {chr(65 + example["correct_answer"])}
+CORRECT: {chr(65 + example["correct_answer"])}
+EXPLANATION: {example.get("explanation", "This answer is correct based on the document content.")}
+NAMES: {", ".join(example.get("metadata", {}).get("specific_names", []))}
+PLACES: {", ".join(example.get("metadata", {}).get("specific_places", []))}
+DATES: {", ".join(example.get("metadata", {}).get("specific_dates", []))}
+EVENTS: {", ".join(example.get("metadata", {}).get("specific_events", []))}
+DIFFICULTY: {example.get("metadata", {}).get("difficulty", "Medium")}
+TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
 """
 
-    def _parse_response(self, response: str, source_text: str, doc_id: str) -> Optional[MCQ]:
+    def _parse_response(self, response: str, source_text: str, doc_id: str) -> MCQ | None:
         """Parse LLM response into MCQ object."""
         try:
+            import re
+
             lines = response.strip().split("\n")
             data = {}
-
+            # Pre-process lines to extract key-value pairs
+            # Handle formats like "QUESTION: ...", "QUESTION:...", "Question: ..."
             for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
                 if ":" in line:
                     key, value = line.split(":", 1)
-                    key = key.strip().upper()
-                    value = value.strip()
-                    data[key] = value
+                    data[key.strip().upper()] = value.strip()
 
+            # Robust option extraction
             options = []
-            for opt in ["A)", "B)", "C)"]:
-                for line in lines:
-                    if line.strip().startswith(opt):
-                        options.append(line.split(")", 1)[1].strip())
-                        break
+            # Support formats: A) text, A. text, A: text, [A] text, - A: text
+            # Regex to match leading label and capture text
+            # Patterns to look for in order
+            option_patterns = [
+                (r"^[A-Z][\)\.\:]\s*(.*)$", 1),
+                (r"^\[([A-Z])\]\s*(.*)$", 2),
+                (r"^[A-Z]\s+(.*)$", 1),
+                (r"^-\s+[A-Z][\:\)]\s*(.*)$", 1),
+            ]
+
+            # Scan for options A, B, C (we expect 3)
+            current_opt_idx = 0
+            expected_labels = ["A", "B", "C"]
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                if current_opt_idx >= len(expected_labels):
+                    break
+                    
+                label = expected_labels[current_opt_idx]
+                match_found = False
+                
+                # Try specific labels first
+                for pattern, capture_idx in option_patterns:
+                    # Compile dynamic regex for the expected label
+                    # Special handling for patterns that capture the label vs those that just use it
+                    if capture_idx == 2: # e.g. [A]
+                        p = r"^\[" + re.escape(label) + r"\]\s*(.*)$"
+                        m = re.search(p, line, re.IGNORECASE)
+                        if m:
+                            options.append(m.group(1).strip())
+                            match_found = True
+                            break
+                    else:
+                        p = r"^" + re.escape(label) + r"[\)\.\:\s]\s*(.*)$"
+                        m = re.search(p, line, re.IGNORECASE)
+                        if not m:
+                            # Try with leading dash or bullet
+                            p = r"^[\-\*]\s*" + re.escape(label) + r"[\)\.\:\s]\s*(.*)$"
+                            m = re.search(p, line, re.IGNORECASE)
+                            
+                        if m:
+                            options.append(m.group(1).strip())
+                            match_found = True
+                            break
+                
+                if match_found:
+                    current_opt_idx += 1
+
+            if len(options) < 3:
+                # Fallback: if we didn't find specific labels, look for any 3 lines that look like options
+                if not options:
+                    opt_lines = [l.strip() for l in lines if re.search(r"^[A-Z][\)\.\:]", l.strip())]
+                    if len(opt_lines) >= 3:
+                        options = [re.sub(r"^[A-Z][\)\.\:]\s*", "", l).strip() for l in opt_lines[:3]]
 
             if len(options) != 3:
                 return None
 
             correct_map = {"A": 0, "B": 1, "C": 2}
-            correct_answer = correct_map.get(data.get("CORRECT", "").strip()[0].upper())
+            correct_val = data.get("CORRECT", "").strip().upper()
+            if not correct_val and "CORRECT_ANSWER" in data:
+                correct_val = data.get("CORRECT_ANSWER", "").strip().upper()
+                
+            correct_answer = None
+            if correct_val:
+                # Handle "A", "A)", "CORRECT: A", etc.
+                match = re.search(r"([A-C])", correct_val)
+                if match:
+                    correct_answer = correct_map.get(match.group(1))
+
+            if correct_answer is None:
+                # Try to find it in the text if not in data
+                for line in lines:
+                    if "CORRECT" in line.upper():
+                        m = re.search(r"([A-C])", line.upper().split("CORRECT")[-1])
+                        if m:
+                            correct_answer = correct_map.get(m.group(1))
+                            break
 
             if correct_answer is None:
                 return None
@@ -504,9 +630,23 @@ Correct: {chr(65 + example["correct_answer"])}
             # Validate essential fields
             question = data.get("QUESTION", "").strip()
             explanation = data.get("EXPLANATION", "").strip()
+            
+            # More robust extraction if labels are slightly different
+            if not question:
+                for k, v in data.items():
+                    if "QUESTION" in k:
+                        question = v
+                        break
+            if not explanation:
+                for k, v in data.items():
+                    if "EXPLANATION" in k or "REASON" in k:
+                        explanation = v
+                        break
 
             if not question or not explanation or not options:
-                logger.warning(f"Incomplete MCQ response for doc {doc_id}")
+                logger.warning(
+                    f"Incomplete MCQ response for doc {doc_id}: question={bool(question)}, explanation={bool(explanation)}, options={len(options)}"
+                )
                 return None
 
             metadata = MCQMetadata(
@@ -529,6 +669,8 @@ Correct: {chr(65 + example["correct_answer"])}
                 timestamp=datetime.now().isoformat(),
                 difficulty=str(data.get("DIFFICULTY", "Medium")),
                 topic_category=str(data.get("TOPIC", "General")),
+                question_type=str(data.get("QUESTION_TYPE", "factual")),
+                model_name="gpt-4",
                 quality_score=0.0,
             )
 
@@ -560,6 +702,8 @@ Correct: {chr(65 + example["correct_answer"])}
             timestamp=metadata_dict.get("timestamp", datetime.now().isoformat()),
             difficulty=str(metadata_dict.get("difficulty", "Medium")),
             topic_category=str(metadata_dict.get("topic_category", "General")),
+            question_type=str(metadata_dict.get("question_type", "factual")),
+            model_name=str(metadata_dict.get("model_name", "gpt-4")),
             quality_score=float(metadata_dict.get("quality_score", 0.0)),
         )
 

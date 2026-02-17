@@ -2,32 +2,234 @@
 CLI interface using Rich and Typer.
 """
 
-import typer
-from typing import Optional
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.layout import Layout
-from rich import box
-from rich.prompt import Prompt, Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
-
-from pathlib import Path
 import asyncio
-import json
 import csv
+import json
+import os
 import signal
+import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
+import typer
+from rich import box
+from rich.console import Console
+from rich.layout import Layout
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
+
+from .dataset_search import search_datasets
+from .exporters.csv_exporter import CSVExporter
+from .exporters.json_exporter import JSONExporter
+from .exporters.markdown_exporter import MarkdownExporter
 from .generator import MCQGenerator
 from .state_manager import StateManager
-from .dataset_search import search_datasets
-from .exporters.json_exporter import JSONExporter
-from .exporters.csv_exporter import CSVExporter
-from .exporters.markdown_exporter import MarkdownExporter
 
 app = typer.Typer(name="mcq", help="High-Performance MCQ Generator", add_completion=False)
+
+
+def main():
+    """Main entry point - runs interactive menu by default."""
+    _run_main_menu()
+
+
+@app.callback(invoke_without_command=True)
+def mcq(
+    ctx: typer.Context,
+    interactive: bool = typer.Option(
+        True, "--interactive/--no-interactive", help="Open interactive menu"
+    ),
+):
+    """MCQ Generator - High-Performance MCQ Generator."""
+    if ctx.invoked_subcommand is None and interactive:
+        _run_main_menu()
+    elif ctx.invoked_subcommand is None and not interactive:
+        console.print("[yellow]No command specified. Use --interactive or see --help[/yellow]")
+
+
+def _run_main_menu():
+    """Run the main interactive menu."""
+    while True:
+        console.print(
+            Panel.fit(
+                "[bold cyan]MCQ Generator[/bold cyan]\nYour AI-powered quiz generation tool",
+                box=box.DOUBLE,
+            )
+        )
+
+        state = StateManager()
+        try:
+            stale_jobs = state.get_stale_jobs(stale_minutes=5)
+            if stale_jobs:
+                console.print(
+                    f"[yellow]Found {len(stale_jobs)} stale job(s) - auto-fixing...[/yellow]"
+                )
+                fixed = state.fix_stale_jobs(stale_minutes=5, mark_as="paused")
+                console.print(f"[green]Fixed {fixed} stale job(s)[/green]\n")
+
+            running_jobs = state.list_jobs(status="running")
+            paused_jobs = state.list_jobs(status="paused")
+            completed_jobs = state.list_jobs(status="completed")
+        finally:
+            state.close()
+
+        console.print(f"[green]Running Jobs:[/green] {len(running_jobs)}")
+        console.print(f"[yellow]Paused Jobs:[/yellow] {len(paused_jobs)}")
+        console.print(f"[blue]Completed Jobs:[/blue] {len(completed_jobs)}")
+
+        console.print("\n[bold cyan]Main Menu:[/bold cyan]")
+        console.print("  [cyan]1[/cyan] - Search & Generate MCQs")
+        console.print("  [cyan]2[/cyan] - Manage Jobs (list, start, stop, view)")
+        console.print("  [cyan]3[/cyan] - Resume a paused/running job")
+        console.print("  [cyan]4[/cyan] - View Statistics")
+        console.print("  [cyan]5[/cyan] - Export MCQs")
+        console.print("  [cyan]q[/cyan] - Quit")
+        console.print("  [dim]Ctrl+C - Cancel[/dim]")
+
+        try:
+            choice = Prompt.ask(
+                "\n[cyan]Select option[/cyan]",
+                choices=["1", "2", "3", "4", "5", "q"],
+                default="q",
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled by user.[/yellow]")
+            console.print("[blue]Goodbye![/blue]")
+            break
+
+        if choice == "q":
+            console.print("[blue]Goodbye![/blue]")
+            break
+        elif choice == "1":
+            _run_interactive_generation()
+        elif choice == "2":
+            _run_jobs_menu()
+        elif choice == "3":
+            _run_resume_menu()
+        elif choice == "4":
+            _show_stats_menu()
+        elif choice == "5":
+            _run_export_menu()
+
+        console.clear()
+
+
+def _run_jobs_menu():
+    """Run the jobs management menu."""
+    state = StateManager()
+    try:
+        jobs = state.list_jobs()
+
+        if not jobs:
+            console.print("[yellow]No jobs found[/yellow]")
+            return
+
+        _run_interactive_job_menu(jobs, state)
+    finally:
+        state.close()
+
+
+def _run_resume_menu():
+    """Run the resume job menu."""
+    state = StateManager()
+    try:
+        paused_jobs = state.list_jobs(status="paused")
+        running_jobs = state.list_jobs(status="running")
+        jobs = paused_jobs + running_jobs
+
+        if not jobs:
+            console.print("[yellow]No resumable jobs found (paused or running).[/yellow]")
+            return
+
+        table = Table(title="Resumable Jobs", box=box.ROUNDED)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Job ID", style="cyan")
+        table.add_column("Status", style="yellow")
+        table.add_column("Dataset", style="magenta")
+        table.add_column("Progress", justify="right")
+
+        for i, job in enumerate(jobs, 1):
+            progress_pct = (
+                (job["generated_count"] / job["target_questions"] * 100)
+                if job["target_questions"] > 0
+                else 0
+            )
+            progress_str = (
+                f"{job['generated_count']}/{job['target_questions']} ({progress_pct:.0f}%)"
+            )
+            table.add_row(str(i), job["job_id"], job["status"], job["dataset_name"], progress_str)
+
+        console.print(table)
+
+        choices = [str(i) for i in range(1, len(jobs) + 1)] + ["c"]
+        choice = Prompt.ask(
+            "\n[cyan]Select job number to resume (or c to cancel)[/cyan]",
+            choices=choices,
+            default="c",
+        )
+
+        if choice == "c":
+            return
+
+        job_id = jobs[int(choice) - 1]["job_id"]
+        console.print(f"\n[green]Resuming job:[/green] {job_id}")
+    finally:
+        state.close()
+
+
+def _show_stats_menu():
+    """Show statistics."""
+    state = StateManager()
+    try:
+        stats = state.get_statistics()
+    finally:
+        state.close()
+
+    console.print(Panel.fit("[bold cyan]Statistics[/bold cyan]", box=box.DOUBLE))
+    console.print(f"Total Jobs: {stats['total_jobs']}")
+    console.print(f"Completed: {stats['completed_jobs']}")
+    console.print(f"Running: {stats['running_jobs']}")
+    console.print(f"Paused: {stats['paused_jobs']}")
+    console.print(f"Total MCQs Generated: {stats['total_mcqs']}")
+
+
+def _run_export_menu():
+    """Run the export menu."""
+    state = StateManager()
+    try:
+        jobs = state.list_jobs(status="completed")
+
+        if not jobs:
+            console.print("[yellow]No completed jobs to export[/yellow]")
+            return
+
+        table = Table(title="Completed Jobs", box=box.ROUNDED)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Job ID", style="cyan")
+        table.add_column("Dataset", style="magenta")
+        table.add_column("Generated", justify="right")
+
+        for i, job in enumerate(jobs, 1):
+            table.add_row(str(i), job["job_id"], job["dataset_name"], str(job["generated_count"]))
+
+        console.print(table)
+
+        choices = [str(i) for i in range(1, len(jobs) + 1)]
+        choice = Prompt.ask(
+            "\n[cyan]Select job number to export[/cyan]", choices=choices + ["c"], default="c"
+        )
+
+        if choice == "c":
+            return
+
+        job_id = jobs[int(choice) - 1]["job_id"]
+        _export_job_results(job_id, state)
+    finally:
+        state.close()
+
 
 console = Console()
 
@@ -62,6 +264,22 @@ def signal_handler(signum, frame):
     global generation_running
     generation_running = False
     console.print("\n[yellow]Stopping generation... (saving progress)[/yellow]")
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.call_soon(_cancel_current_task)
+    except RuntimeError:
+        pass
+
+
+def _cancel_current_task():
+    """Cancel the currently running async task."""
+    try:
+        task = asyncio.current_task()
+        if task and not task.done():
+            task.cancel()
+    except RuntimeError:
+        pass
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -121,9 +339,13 @@ def _run_interactive_generation():
         )
     )
 
-    query = Prompt.ask(
-        "[cyan]Enter search query[/cyan] (e.g., 'sentiment', 'qa', 'text classification')"
-    )
+    try:
+        query = Prompt.ask(
+            "[cyan]Enter search query[/cyan] (e.g., 'sentiment', 'qa', 'text classification')"
+        )
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Cancelled by user.[/yellow]")
+        return
 
     console.print(f"\n[cyan]Searching for:[/cyan] {query}")
 
@@ -145,12 +367,17 @@ def _run_interactive_generation():
         console.print("  [cyan]n[/cyan] - Next page")
         console.print("  [cyan]q[/cyan] - Done selecting")
         console.print("  [cyan]c[/cyan] - Cancel")
+        console.print("  [dim]Ctrl+C - Cancel[/dim]")
 
-        action = Prompt.ask(
-            "\n[cyan]Action[/cyan]",
-            choices=["n", "q", "c"],
-            default="q",
-        )
+        try:
+            action = Prompt.ask(
+                "\n[cyan]Action[/cyan]",
+                choices=["n", "q", "c"],
+                default="q",
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled by user.[/yellow]")
+            return
 
         if action == "c":
             console.print("[yellow]Cancelled.[/yellow]")
@@ -166,11 +393,20 @@ def _run_interactive_generation():
 
     console.print(f"\n[green]Total datasets available: {len(all_results)}[/green]\n")
 
-    choices = [str(i) for i in range(1, len(all_results) + 1)]
-    choice = Prompt.ask(
-        "\n[cyan]Select dataset number[/cyan]",
-        choices=choices,
-    )
+    choices = [str(i) for i in range(1, len(all_results) + 1)] + ["c", "q"]
+    try:
+        choice = Prompt.ask(
+            "\n[cyan]Select dataset number (or c to cancel, q to quit)[/cyan]",
+            choices=choices,
+            default="c",
+        )
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Cancelled by user.[/yellow]")
+        return
+
+    if choice in ["c", "q"]:
+        console.print("[yellow]Cancelled.[/yellow]")
+        return
 
     selected = all_results[int(choice) - 1]
     dataset_name = selected["id"]
@@ -178,33 +414,41 @@ def _run_interactive_generation():
     console.print(f"\n[green]Selected:[/green] {dataset_name}")
     console.print(f"   Downloads: {selected['downloads']:,} | Likes: {selected['likes']:,}")
 
-    if not Confirm.ask("\n[cyan]Proceed with this dataset?[/cyan]"):
-        console.print("[yellow]Cancelled.[/yellow]")
+    try:
+        if not Confirm.ask("\n[cyan]Proceed with this dataset?[/cyan]"):
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Cancelled by user.[/yellow]")
         return
 
     console.print("\n[cyan]Generation Mode:[/cyan]")
     console.print("  [cyan]1[/cyan] - Limited (specify number of questions)")
     console.print("  [cyan]2[/cyan] - Continuous (generate until cancelled/paused)")
 
-    mode = Prompt.ask("[cyan]Choose mode[/cyan]", choices=["1", "2"], default="2")
+    try:
+        mode = Prompt.ask("[cyan]Choose mode[/cyan]", choices=["1", "2"], default="2")
 
-    output = Prompt.ask(
-        "[cyan]Output file[/cyan]", default=f"mcqs_{dataset_name.split('/')[-1]}.json"
-    )
-
-    if mode == "1":
-        questions = Prompt.ask("[cyan]Number of questions to generate[/cyan]", default="50")
-        target_questions = int(questions)
-        continuous = False
-    else:
-        console.print(
-            "\n[yellow]Continuous mode: Generating until cancelled, paused, or exhausted.[/yellow]"
+        output = Prompt.ask(
+            "[cyan]Output file[/cyan]", default=f"mcqs_{dataset_name.split('/')[-1]}.json"
         )
-        console.print("[yellow]Results will be saved after each MCQ generation.[/yellow]")
-        target_questions = 999999999
-        continuous = True
 
-    console.print(f"\n[bold cyan]Starting generation...[/bold cyan]")
+        if mode == "1":
+            questions = Prompt.ask("[cyan]Number of questions to generate[/cyan]", default="50")
+            target_questions = int(questions)
+            continuous = False
+        else:
+            console.print(
+                "\n[yellow]Continuous mode: Generating until cancelled, paused, or exhausted.[/yellow]"
+            )
+            console.print("[yellow]Results will be saved after each MCQ generation.[/yellow]")
+            target_questions = 999999999
+            continuous = True
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Cancelled by user.[/yellow]")
+        return
+
+    console.print("\n[bold cyan]Starting generation...[/bold cyan]")
     console.print(f"Dataset: {dataset_name}")
     console.print(f"Mode: {'Continuous' if continuous else 'Limited'}")
     console.print(f"Output: {output}\n")
@@ -409,9 +653,9 @@ async def _run_generation_loop(
     dataset_name: str,
     target_questions: int,
     output_path: Path,
-    resume_job_id: Optional[str] = None,
+    resume_job_id: str | None = None,
     checkpoint_interval: int = 10,
-    provider_url: Optional[str] = None,
+    provider_url: str | None = None,
     cache_dir: str = ".mcq_cache",
 ):
     """Core generation loop used by all commands."""
@@ -443,7 +687,7 @@ async def _run_generation_loop(
             try:
                 json_path = output_path.with_suffix(".json")
                 if json_path.exists():
-                    with open(json_path, "r", encoding="utf-8") as f:
+                    with open(json_path, encoding="utf-8") as f:
                         data = json.load(f)
                         file_mcqs = data.get("mcqs", [])
                         if file_mcqs:
@@ -626,9 +870,6 @@ async def _run_generation_loop(
 
 def _open_output_folder(path: Path):
     """Open output folder in file manager."""
-    import os
-    import subprocess
-
     folder = path.parent.absolute()
     console.print(f"[cyan]Opening folder:[/cyan] {folder}")
 
@@ -653,7 +894,7 @@ def generate(
     checkpoint: int = typer.Option(10, "--checkpoint", help="Checkpoint interval"),
     cache_dir: str = typer.Option(".mcq_cache", "--cache-dir", help="Cache directory"),
     provider_url: str = typer.Option("http://localhost:7543", "--provider", help="Provider URL"),
-    resume: Optional[str] = typer.Option(None, "--resume", help="Job ID to resume"),
+    resume: str | None = typer.Option(None, "--resume", help="Job ID to resume"),
 ):
     """Generate MCQs from a HuggingFace dataset."""
     continuous = questions == 0
@@ -682,11 +923,72 @@ def generate(
 
 @app.command()
 def resume(
-    job_id: str = typer.Argument(..., help="Job ID to resume"),
+    job_id: str = typer.Argument(None, help="Job ID to resume"),
     output: str = typer.Option("mcqs.json", "--output", "-o", help="Output file"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Select job interactively"),
 ):
     """Resume an interrupted job."""
-    console.print(f"[cyan]Resuming job {job_id}...[/cyan]")
+
+    # Interactive mode: show paused jobs and let user select one
+    if interactive:
+        state = StateManager()
+        try:
+            # Get paused and running jobs (jobs that can be resumed)
+            paused_jobs = state.list_jobs(status="paused")
+            running_jobs = state.list_jobs(status="running")
+
+            # Combine paused and running jobs
+            jobs = paused_jobs + running_jobs
+
+            if not jobs:
+                console.print("[yellow]No resumable jobs found (paused or running).[/yellow]")
+                return
+
+            # Display jobs in a table
+            table = Table(title="Resumable Jobs (Paused/Running)", box=box.ROUNDED)
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Job ID", style="cyan")
+            table.add_column("Status", style="yellow")
+            table.add_column("Dataset", style="magenta")
+            table.add_column("Progress", justify="right")
+            table.add_column("Created", style="blue")
+
+            for i, job in enumerate(jobs, 1):
+                progress_pct = (
+                    (job["generated_count"] / job["target_questions"] * 100)
+                    if job["target_questions"] > 0
+                    else 0
+                )
+                progress_str = (
+                    f"{job['generated_count']}/{job['target_questions']} ({progress_pct:.0f}%)"
+                )
+                table.add_row(
+                    str(i),
+                    job["job_id"],
+                    job["status"],
+                    job["dataset_name"],
+                    progress_str,
+                    str(job["created_at"]),
+                )
+
+            console.print(table)
+
+            # Let user select a job
+            choices = [str(i) for i in range(1, len(jobs) + 1)]
+            choice = Prompt.ask(
+                "\n[cyan]Select job number to resume[/cyan]",
+                choices=choices,
+            )
+
+            job_id = jobs[int(choice) - 1]["job_id"]
+            console.print(f"\n[green]Selected:[/green] {job_id}")
+
+        finally:
+            state.close()
+
+    if not job_id:
+        console.print("[red]Error: Please provide a job ID or use --interactive/-i flag.[/red]")
+        raise typer.Exit(1)
 
     # Load job progress and close the StateManager before starting the
     # generation loop. Keeping the connection open across the async run
@@ -752,24 +1054,91 @@ def resume(
 
 
 @app.command()
-def list_jobs(status: Optional[str] = typer.Option(None, "--status", help="Filter by status")):
+def list_jobs(
+    status: str | None = typer.Option(None, "--status", help="Filter by status"),
+    interactive: bool = typer.Option(
+        False, "--interactive", "-i", help="Interactive menu to manage jobs"
+    ),
+    fix_stale: bool = typer.Option(
+        False, "--fix-stale", "-f", help="Auto-fix stale jobs (mark as paused)"
+    ),
+):
     """List all jobs."""
     state = StateManager()
     try:
+        stale_jobs = state.get_stale_jobs(stale_minutes=5)
+        if stale_jobs:
+            console.print(
+                f"[yellow]Warning: Found {len(stale_jobs)} stale job(s) that may have crashed:[/yellow]"
+            )
+            for j in stale_jobs:
+                console.print(f"  - {j['job_id']}: last updated {j.get('updated_at', 'unknown')}")
+
+            if fix_stale:
+                fixed = state.fix_stale_jobs(stale_minutes=5, mark_as="paused")
+                console.print(f"[green]Fixed {fixed} stale job(s) by marking as paused[/green]")
+            else:
+                console.print("[dim]Run with --fix-stale to auto-mark these as paused[/dim]")
+            console.print()
+
         jobs = state.list_jobs(status=status)
 
         if not jobs:
             console.print("[yellow]No jobs found[/yellow]")
             return
 
+        if interactive:
+            _run_interactive_job_menu(jobs, state)
+            return
+
+        _display_jobs_table(jobs)
+
+    finally:
+        state.close()
+
+
+def _display_jobs_table(jobs: list[dict]) -> None:
+    """Display jobs in a table."""
+    table = Table(title="MCQ Generation Jobs", box=box.ROUNDED)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Job ID", style="cyan", no_wrap=True)
+    table.add_column("Dataset", style="magenta")
+    table.add_column("Status", style="green")
+    table.add_column("Progress", justify="right")
+    table.add_column("Created", style="blue")
+
+    for i, job in enumerate(jobs, 1):
+        progress_pct = (
+            (job["generated_count"] / job["target_questions"] * 100)
+            if job["target_questions"] > 0
+            else 0
+        )
+        progress_str = f"{job['generated_count']}/{job['target_questions']} ({progress_pct:.0f}%)"
+
+        table.add_row(
+            str(i),
+            job["job_id"],
+            job["dataset_name"],
+            job["status"],
+            progress_str,
+            str(job["created_at"]),
+        )
+
+    console.print(table)
+
+
+def _run_interactive_job_menu(jobs: list[dict], state: StateManager) -> None:
+    """Run interactive job management menu."""
+    while True:
         table = Table(title="MCQ Generation Jobs", box=box.ROUNDED)
+        table.add_column("#", style="dim", width=4)
         table.add_column("Job ID", style="cyan", no_wrap=True)
         table.add_column("Dataset", style="magenta")
         table.add_column("Status", style="green")
         table.add_column("Progress", justify="right")
         table.add_column("Created", style="blue")
 
-        for job in jobs:
+        for i, job in enumerate(jobs, 1):
             progress_pct = (
                 (job["generated_count"] / job["target_questions"] * 100)
                 if job["target_questions"] > 0
@@ -780,6 +1149,7 @@ def list_jobs(status: Optional[str] = typer.Option(None, "--status", help="Filte
             )
 
             table.add_row(
+                str(i),
                 job["job_id"],
                 job["dataset_name"],
                 job["status"],
@@ -789,8 +1159,291 @@ def list_jobs(status: Optional[str] = typer.Option(None, "--status", help="Filte
 
         console.print(table)
 
-    finally:
-        state.close()
+        console.print("\n[dim]Options:[/dim]")
+        console.print("  [cyan]1-[/cyan]<n> - Select job number")
+        console.print("  [cyan]r[/cyan] - Refresh list")
+        console.print("  [cyan]q[/cyan] - Quit")
+        console.print("  [dim]Ctrl+C - Cancel[/dim]")
+
+        choices = [str(i) for i in range(1, len(jobs) + 1)] + ["r", "q"]
+        try:
+            choice = Prompt.ask(
+                "\n[cyan]Select option[/cyan]",
+                choices=choices,
+                default="q",
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled by user.[/yellow]")
+            break
+
+        if choice == "q":
+            break
+
+        if choice == "r":
+            jobs = state.list_jobs()
+            console.clear()
+            continue
+
+        job_index = int(choice) - 1
+        if 0 <= job_index < len(jobs):
+            selected_job = jobs[job_index]
+            state_closed = _manage_single_job(selected_job, state)
+            if state_closed:
+                # State was closed to spawn subprocess, recreate it
+                state = StateManager()
+            jobs = state.list_jobs()
+            console.clear()
+
+
+def _manage_single_job(job: dict, state: StateManager) -> bool:
+    """Manage a single job (start/stop/view/delete). Returns True if state was closed."""
+    job_id = job["job_id"]
+    current_status = job["status"]
+    state_closed = False
+
+    while True:
+        console.print(f"\n[bold cyan]Job:[/bold cyan] {job_id}")
+        console.print(f"[bold cyan]Dataset:[/bold cyan] {job['dataset_name']}")
+        console.print(f"[bold cyan]Status:[/bold cyan] {current_status}")
+        console.print(
+            f"[bold cyan]Progress:[/bold cyan] {job.get('generated_count', 0)}/{job.get('target_questions', '?')}"
+        )
+
+        options = []
+        if current_status == "paused":
+            options.append("s - Start/Resume job")
+            options.append("p - (already paused)")
+        elif current_status == "running":
+            options.append("p - Pause/Stop job")
+            job_info = state.get_job(job_id)
+            stale = state.get_stale_jobs(stale_minutes=1)
+            is_stale = any(j["job_id"] == job_id for j in stale)
+            if is_stale:
+                options.append("s - Restart stalled job")
+            else:
+                options.append("s - (already running)")
+        elif current_status == "completed":
+            options.append("e - Export results")
+        elif current_status == "failed":
+            options.append("r - Retry/Reset job")
+        else:
+            options.append("s - Start job")
+
+        options.append("v - View details")
+        options.append("l - View logs")
+        options.append("d - Delete job")
+        options.append("b - Back to list")
+
+        console.print("\n[dim]Options:[/dim]")
+        for opt in options:
+            console.print(f"  [cyan]{opt}[/cyan]")
+        console.print("  [dim]Ctrl+C - Cancel[/dim]")
+
+        try:
+            choice = Prompt.ask(
+                "\n[cyan]Select action[/cyan]",
+                choices=["s", "p", "v", "b", "e", "r", "d", "l"],
+                default="b",
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled by user.[/yellow]")
+            return state_closed
+
+        if choice == "b":
+            return state_closed
+
+        if choice == "d":
+            confirm = Confirm.ask(
+                f"\n[red]Are you sure you want to delete job '{job_id}'?[/red]\nThis will delete all MCQs and checkpoints for this job."
+            )
+            if confirm:
+                success = state.delete_job(job_id)
+                if success:
+                    console.print(f"[green]Job {job_id} deleted successfully[/green]")
+                    return state_closed
+                else:
+                    console.print(f"[red]Failed to delete job {job_id}[/red]")
+            continue
+
+        if choice == "v":
+            _display_job_details(job_id, state)
+            current_status = state.get_job_progress(job_id)["status"]
+            continue
+
+        if choice == "l":
+            log_file = Path(f"mcq_{job_id}.log")
+            if log_file.exists():
+                console.print(f"\n[bold cyan]Last 20 lines of {log_file}:[/bold cyan]\n")
+                with open(log_file) as f:
+                    lines = f.readlines()
+                    for line in lines[-20:]:
+                        console.print(line.rstrip())
+                console.print()
+            else:
+                console.print(f"[yellow]No log file found at {log_file}[/yellow]")
+            continue
+
+        if choice == "s" and current_status == "paused":
+            console.print(f"[cyan]Starting job {job_id}...[/cyan]")
+            log_file = Path(f"mcq_{job_id}.log")
+            console.print(f"[yellow]Job will run in background. Log: {log_file}[/yellow]")
+            try:
+                # Close DB connection before spawning subprocess to avoid lock conflicts
+                state.close()
+                state_closed = True
+                # Give DuckDB time to release the lock
+                import time
+
+                time.sleep(0.5)
+                with open(log_file, "w") as log:
+                    proc = subprocess.Popen(
+                        [sys.executable, "-m", "src.mcq_generator.cli", "resume", job_id],
+                        cwd=Path.cwd(),
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                    )
+                    # Wait briefly to see if process starts successfully
+                    import time
+
+                    time.sleep(2)
+                    if proc.poll() is not None:
+                        # Process exited immediately
+                        console.print(f"[red]Job failed to start. Check log: {log_file}[/red]")
+                        return state_closed
+                    else:
+                        console.print(
+                            f"[green]Job {job_id} started in background (PID: {proc.pid})[/green]"
+                        )
+            except Exception as e:
+                console.print(f"[red]Failed to start job: {e}[/red]")
+            return state_closed
+
+        if choice == "s" and current_status == "running":
+            stale = state.get_stale_jobs(stale_minutes=1)
+            is_stale = any(j["job_id"] == job_id for j in stale)
+            if is_stale:
+                console.print(f"[yellow]Restarting stalled job {job_id}...[/yellow]")
+                log_file = Path(f"mcq_{job_id}.log")
+                try:
+                    # Close DB connection before spawning subprocess to avoid lock conflicts
+                    state.close()
+                    state_closed = True
+                    # Give DuckDB time to release the lock
+                    import time
+
+                    time.sleep(0.5)
+                    with open(log_file, "a") as log:
+                        proc = subprocess.Popen(
+                            [sys.executable, "-m", "src.mcq_generator.cli", "resume", job_id],
+                            cwd=Path.cwd(),
+                            stdout=log,
+                            stderr=subprocess.STDOUT,
+                        )
+                        # Wait briefly to see if process starts successfully
+                        import time
+
+                        time.sleep(2)
+                        if proc.poll() is not None:
+                            console.print(
+                                f"[red]Job failed to restart. Check log: {log_file}[/red]"
+                            )
+                        else:
+                            console.print(
+                                f"[green]Job {job_id} restarted in background (PID: {proc.pid})[/green]"
+                            )
+                except Exception as e:
+                    console.print(f"[red]Failed to restart job: {e}[/red]")
+                return state_closed
+
+        if choice == "p" and current_status == "running":
+            state.update_job_status(job_id, "paused")
+            console.print(f"[yellow]Job {job_id} paused/stopped[/yellow]")
+            current_status = "paused"
+
+        if choice == "e" and current_status == "completed":
+            _export_job_results(job_id, state)
+
+        if choice == "r" and current_status == "failed":
+            state.update_job_status(job_id, "paused")
+            console.print(f"[green]Job {job_id} reset to paused state[/green]")
+            current_status = "paused"
+
+    return state_closed
+
+
+def _display_job_details(job_id: str, state: StateManager) -> None:
+    """Display detailed job information with live logs."""
+    progress = state.get_job_progress(job_id)
+
+    layout = Layout()
+    layout.split_column(Layout(name="header"), Layout(name="info"), Layout(name="logs"))
+
+    layout["header"].update(Panel(f"[bold cyan]Job: {job_id}[/bold cyan]", box=box.DOUBLE))
+
+    info_table = Table(box=box.SIMPLE)
+    info_table.add_column("Property", style="cyan")
+    info_table.add_column("Value", style="white")
+
+    info_table.add_row("Dataset", progress["dataset_name"])
+    info_table.add_row(
+        "Status",
+        f"[{'green' if progress['status'] == 'running' else 'yellow' if progress['status'] == 'paused' else 'blue'}]{progress['status']}[/]",
+    )
+    info_table.add_row("Target", str(progress["target_questions"]))
+    info_table.add_row("Generated", str(progress["generated_count"]))
+    info_table.add_row("Progress", f"{progress['progress_pct']:.1f}%")
+    info_table.add_row("Created", str(progress["created_at"]))
+    info_table.add_row("Updated", str(progress["updated_at"]))
+
+    layout["info"].update(Panel(info_table, title="[bold]Job Info[/bold]"))
+
+    recent_mcqs = state.conn.execute(
+        """
+        SELECT mcq_json, quality_score, created_at 
+        FROM mcq_results 
+        WHERE job_id = ?
+        ORDER BY created_at DESC 
+        LIMIT 5
+        """,
+        [job_id],
+    ).fetchall()
+
+    if recent_mcqs:
+        logs_text = ""
+        for mcq_json, quality, created in recent_mcqs:
+            mcq = json.loads(mcq_json)
+            question = mcq.get("question", "N/A")[:60]
+            logs_text += f"[dim]{created}[/dim] | [green]Q:{quality:.0f}[/green] | {question}...\n"
+
+        layout["logs"].update(
+            Panel(
+                logs_text,
+                title="[bold]Recent MCQ Outputs (Live Feed)[/bold]",
+                box=box.ROUNDED,
+            )
+        )
+    else:
+        layout["logs"].update(
+            Panel(
+                "[dim]No MCQs generated yet...[/dim]",
+                title="[bold]Recent MCQ Outputs (Live Feed)[/bold]",
+                box=box.ROUNDED,
+            )
+        )
+
+    console.print(layout)
+
+
+def _export_job_results(job_id: str, state: StateManager) -> None:
+    """Export job results to a file."""
+    output_file = Prompt.ask(
+        "[cyan]Output file[/cyan]",
+        default=f"mcqs_{job_id}.json",
+    )
+    mcqs = state.get_mcqs(job_id)
+    with open(output_file, "w") as f:
+        json.dump(mcqs, f, indent=2)
+    console.print(f"[green]Exported {len(mcqs)} MCQs to {output_file}[/green]")
 
 
 @app.command()
@@ -854,16 +1507,16 @@ def export(
     job_id: str = typer.Argument(..., help="Job ID to export"),
     format: str = typer.Option("json", "--format", "-f", help="Export format (json/csv/markdown)"),
     output: str = typer.Option("export", "--output", "-o", help="Output file path"),
-    min_quality: Optional[float] = typer.Option(
+    min_quality: float | None = typer.Option(
         None, "--min-quality", help="Minimum quality score (0-100)"
     ),
-    max_quality: Optional[float] = typer.Option(
+    max_quality: float | None = typer.Option(
         None, "--max-quality", help="Maximum quality score (0-100)"
     ),
-    difficulty: Optional[str] = typer.Option(
+    difficulty: str | None = typer.Option(
         None, "--difficulty", help="Filter by difficulty: Easy/Medium/Hard"
     ),
-    topic: Optional[str] = typer.Option(None, "--topic", help="Filter by topic category substring"),
+    topic: str | None = typer.Option(None, "--topic", help="Filter by topic category substring"),
     no_source: bool = typer.Option(False, "--no-source", help="Exclude source text"),
     no_explanation: bool = typer.Option(False, "--no-explanation", help="Exclude explanation"),
     no_metadata: bool = typer.Option(False, "--no-metadata", help="Exclude metadata fields"),
@@ -942,6 +1595,43 @@ def export(
             exporter.export(mcqs, output)
             if not quiet:
                 console.print(f"[green]Exported {len(mcqs)} MCQs to {output}[/green]")
+
+    finally:
+        state.close()
+
+
+@app.command()
+def delete(
+    job_id: str = typer.Argument(..., help="Job ID to delete"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+):
+    """Delete a job and all its related data (MCQs, checkpoints)."""
+    state = StateManager()
+    try:
+        job = state.get_job(job_id)
+        if not job:
+            console.print(f"[red]Error: Job '{job_id}' not found.[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"[bold]Job:[/bold] {job_id}")
+        console.print(f"[bold]Dataset:[/bold] {job['dataset_name']}")
+        console.print(f"[bold]Status:[/bold] {job['status']}")
+        console.print(f"[bold]Generated:[/bold] {job['generated_count']}/{job['target_questions']}")
+
+        if not force:
+            confirm = Confirm.ask(
+                "\n[red]Are you sure you want to delete this job?[/red]\nThis will permanently delete all MCQs and checkpoints for this job."
+            )
+            if not confirm:
+                console.print("[yellow]Deletion cancelled.[/yellow]")
+                return
+
+        success = state.delete_job(job_id)
+        if success:
+            console.print(f"[green]Job {job_id} deleted successfully[/green]")
+        else:
+            console.print(f"[red]Failed to delete job {job_id}[/red]")
+            raise typer.Exit(1)
 
     finally:
         state.close()

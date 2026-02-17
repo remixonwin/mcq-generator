@@ -2,8 +2,8 @@
 Document filters and quality scoring for intelligent pre-processing.
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)

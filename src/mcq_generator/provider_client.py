@@ -2,17 +2,17 @@
 HTTP client for LLM Provider with retry logic, circuit breaker, and connection pooling.
 """
 
-import httpx
+import asyncio
+import json
 import logging
-from typing import Optional
-from pathlib import Path
 import traceback
+from datetime import datetime
+from pathlib import Path
+
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from . import provider_adapters
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-import asyncio
-from datetime import datetime
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class ProviderClient:
         self.failure_count = 0
         self.circuit_breaker_threshold = circuit_breaker_threshold
         self.circuit_breaker_timeout = circuit_breaker_timeout
-        self.circuit_opened_at: Optional[datetime] = None
+        self.circuit_opened_at: datetime | None = None
 
         self.total_requests = 0
         self.successful_requests = 0
@@ -94,9 +94,9 @@ class ProviderClient:
         messages: list[dict],
         model: str = "gpt-4",
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        routing: Optional[dict] = None,
-        quality: Optional[dict] = None,
+        max_tokens: int | None = None,
+        routing: dict | None = None,
+        quality: dict | None = None,
         **kwargs,
     ) -> dict:
         """Generate completion from the provider."""

@@ -3,7 +3,7 @@ Markdown Exporter for MCQs.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseExporter
 
@@ -22,11 +22,11 @@ class MarkdownExporter(BaseExporter):
         include_source: bool = True,
         include_explanation: bool = True,
         include_metadata: bool = True,
-        min_quality: Optional[float] = None,
-        max_quality: Optional[float] = None,
-        difficulty: Optional[str] = None,
-        topic: Optional[str] = None,
-        job_id: Optional[str] = None,
+        min_quality: float | None = None,
+        max_quality: float | None = None,
+        difficulty: str | None = None,
+        topic: str | None = None,
+        job_id: str | None = None,
     ):
         super().__init__(
             include_source=include_source,
@@ -47,7 +47,12 @@ class MarkdownExporter(BaseExporter):
     def file_extension(self) -> str:
         return ".md"
 
-    def export(self, mcqs: List[Dict[str, Any]], output_file: Optional[str] = None) -> str:
+    def export(
+        self,
+        mcqs: list[dict[str, Any]],
+        output_file: str | None = None,
+        include_metadata: bool = True,
+    ) -> str:
         """Export MCQs to Markdown format."""
         # Apply filters
         filtered_mcqs = self.apply_filters(mcqs)
@@ -91,43 +96,43 @@ class MarkdownExporter(BaseExporter):
         else:
             return markdown_content
 
-    def _add_question(self, lines: List[str], mcq: Dict[str, Any], question_num: int) -> None:
+    def _add_question(self, lines: list[str], mcq: dict[str, Any], question_num: int) -> None:
         """Add a question to the markdown output."""
         metadata = mcq.get("metadata", {})
-        
+
         difficulty = metadata.get("difficulty", "Unknown")
         topic = metadata.get("topic_category", "Unknown")
-        
+
         # Question header
         lines.append(f"## Question {question_num} ({difficulty} - {topic})")
         lines.append("")
-        
+
         # Question text
         lines.append(mcq.get("question", ""))
         lines.append("")
-        
+
         # Options
         options = mcq.get("options", [])
         option_letters = ["A", "B", "C"]
-        
+
         for i, option in enumerate(options):
             letter = option_letters[i] if i < len(option_letters) else "?"
             lines.append(f"{letter}) {option}")
-        
+
         lines.append("")
-        
+
         # Answer
         correct_answer = mcq.get("correct_answer", 0)
         correct_letter = _get_correct_letter(correct_answer)
         lines.append(f"**Answer: {correct_letter}**")
-        
+
         # Explanation (if requested)
         if self.include_explanation:
             explanation = mcq.get("explanation", "")
             if explanation:
                 lines.append("")
                 lines.append(f"**Explanation:** {explanation}")
-        
+
         lines.append("")
         lines.append("---")
         lines.append("")

@@ -4,10 +4,10 @@ Cache Manager using diskcache for content-addressable storage.
 
 import hashlib
 import logging
-from typing import Optional
 from pathlib import Path
-from diskcache import Cache
+
 import orjson
+from diskcache import Cache
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class CacheManager:
         """Compute SHA-256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-    def get_mcq(self, document: str) -> Optional[dict]:
+    def get_mcq(self, document: str) -> dict | None:
         """Get cached MCQ for a document (exact match)."""
         doc_hash = self._compute_hash(document)
         cached = self.mcq_cache.get(doc_hash)
@@ -176,7 +176,7 @@ class DuplicateDetector:
         self.seen_hashes.add(doc_hash)
         return False
 
-    def find_similar(self, document: str, threshold: float = 0.85) -> Optional[dict]:
+    def find_similar(self, document: str, threshold: float = 0.85) -> dict | None:
         """Find similar documents in cache."""
         cached_mcq = self.cache.get_mcq(document)
         return cached_mcq

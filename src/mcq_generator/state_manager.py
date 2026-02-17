@@ -2,13 +2,13 @@
 State Manager using DuckDB for high-performance pause/resume functionality.
 """
 
-import duckdb
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
 import json
 import logging
 import time
+from datetime import datetime
+from pathlib import Path
+
+import duckdb
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class StateManager:
         job_id: str,
         dataset_name: str,
         target_questions: int,
-        config: Optional[dict] = None,
+        config: dict | None = None,
         dataset_split: str = "train",
     ) -> str:
         """Create a new job."""
@@ -98,7 +98,7 @@ class StateManager:
         metrics: dict,
     ) -> None:
         """Save a checkpoint for pause/resume."""
-        checkpoint_id = f"{job_id}_cp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        checkpoint_id = f"{job_id}_cp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         # Wrap DB writes in a small retry loop to handle transient write-write
         # conflicts in DuckDB when multiple processes may access the DB.
         max_attempts = 5
@@ -139,7 +139,7 @@ class StateManager:
                 time.sleep(delay)
                 delay = min(delay * 2, 2.0)
 
-    def get_latest_checkpoint(self, job_id: str) -> Optional[dict]:
+    def get_latest_checkpoint(self, job_id: str) -> dict | None:
         """Get the most recent checkpoint for resuming."""
         result = self.conn.execute(
             """
@@ -528,7 +528,7 @@ class StateManager:
         self.sync_generated_count(job_id)
         return restored
 
-    def list_jobs(self, status: Optional[str] = None) -> list[dict]:
+    def list_jobs(self, status: str | None = None) -> list[dict]:
         """List all jobs, optionally filtered by status."""
         query = "SELECT job_id, dataset_name, status, target_questions, generated_count, created_at FROM jobs"
         params = []
@@ -648,6 +648,55 @@ class StateManager:
             "total_mcqs": stats[4] or 0,
         }
 
+    def get_stale_jobs(self, stale_minutes: int = 5) -> list[dict]:
+        """Get jobs marked as running but not updated in X minutes (likely crashed/stuck)."""
+        results = self.conn.execute(
+            f"""
+            SELECT job_id, dataset_name, status, target_questions, generated_count, created_at, updated_at
+            FROM jobs
+            WHERE status = 'running'
+            AND updated_at < CURRENT_TIMESTAMP - INTERVAL '{stale_minutes}' minute
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+
+        out = []
+        for row in results:
+            created_at = row[5]
+            updated_at = row[6]
+            if isinstance(created_at, datetime):
+                created_at = created_at.isoformat()
+            if isinstance(updated_at, datetime):
+                updated_at = updated_at.isoformat()
+            out.append(
+                {
+                    "job_id": row[0],
+                    "dataset_name": row[1],
+                    "status": row[2],
+                    "target_questions": row[3],
+                    "generated_count": row[4],
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                }
+            )
+        return out
+
+    def fix_stale_jobs(self, stale_minutes: int = 5, mark_as: str = "paused") -> int:
+        """Mark stale running jobs as paused/failed. Returns count of fixed jobs."""
+        stale = self.get_stale_jobs(stale_minutes)
+        if not stale:
+            return 0
+
+        self.conn.execute(
+            f"""
+            UPDATE jobs
+            SET status = '{mark_as}', updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'running'
+            AND updated_at < CURRENT_TIMESTAMP - INTERVAL '{stale_minutes}' minute
+            """
+        )
+        return len(stale)
+
     def cleanup_old_checkpoints(self, job_id: str, keep_last_n: int = 5) -> None:
         """Remove old checkpoints to save space."""
         self.conn.execute(
@@ -662,6 +711,40 @@ class StateManager:
             """,
             [job_id, keep_last_n],
         )
+
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job and all its related data (mcq_results, checkpoints). Returns True if successful."""
+        try:
+            self.conn.execute("DELETE FROM mcq_results WHERE job_id = ?", [job_id])
+            self.conn.execute("DELETE FROM checkpoints WHERE job_id = ?", [job_id])
+            self.conn.execute("DELETE FROM jobs WHERE job_id = ?", [job_id])
+            return True
+        except Exception:
+            return False
+
+    def get_job(self, job_id: str) -> dict | None:
+        """Get a single job by ID."""
+        result = self.conn.execute(
+            "SELECT job_id, dataset_name, status, target_questions, generated_count, created_at, updated_at FROM jobs WHERE job_id = ?",
+            [job_id],
+        ).fetchone()
+
+        if result is None:
+            return None
+
+        return {
+            "job_id": result[0],
+            "dataset_name": result[1],
+            "status": result[2],
+            "target_questions": result[3],
+            "generated_count": result[4],
+            "created_at": result[5].isoformat()
+            if isinstance(result[5], datetime)
+            else str(result[5]),
+            "updated_at": result[6].isoformat()
+            if isinstance(result[6], datetime)
+            else str(result[6]),
+        }
 
     def close(self) -> None:
         """Close database connection."""

@@ -4,7 +4,6 @@ Configuration manager for environment variables.
 
 import os
 from pathlib import Path
-from typing import Optional
 
 
 class Config:
@@ -12,7 +11,7 @@ class Config:
     Simple configuration manager that loads from .env if present.
     """
 
-    def __init__(self, env_file: Optional[str] = None):
+    def __init__(self, env_file: str | None = None):
         if env_file is None:
             # Look for .env in project root (assuming we are in src/mcq_generator)
             env_file = Path(__file__).parent.parent.parent / ".env"
@@ -26,7 +25,7 @@ class Config:
         if not self.env_file.exists():
             return
 
-        with open(self.env_file, "r") as f:
+        with open(self.env_file) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -37,12 +36,12 @@ class Config:
                     value = value.strip().strip("'").strip('"')
                     self.env[key.strip()] = value
 
-    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get(self, key: str, default: str | None = None) -> str | None:
         """Get value from .env or environment variables."""
         return self.env.get(key) or os.getenv(key) or default
 
     @property
-    def HF_TOKEN(self) -> Optional[str]:
+    def HF_TOKEN(self) -> str | None:
         return self.get("HF_TOKEN")
 
     @property

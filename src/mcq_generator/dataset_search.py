@@ -3,7 +3,7 @@ HuggingFace Dataset Search Module
 """
 
 import logging
-from typing import Optional
+
 from huggingface_hub import list_datasets
 
 from .config import config
@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def search_datasets(
-    query: Optional[str] = None,
+    query: str | None = None,
     limit: int = 10,
     sort: str = "downloads",
-    direction: Optional[int] = -1,
+    direction: int | None = -1,
     offset: int = 0,
 ) -> list[dict]:
     """
@@ -63,7 +63,7 @@ def search_datasets(
         return []
 
 
-def get_dataset_info(dataset_id: str) -> Optional[dict]:
+def get_dataset_info(dataset_id: str) -> dict | None:
     """
     Get detailed info for a specific dataset.
 

@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Any
 
 
-def merge_mcqs(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+def merge_mcqs(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """
     Merge two mcqs JSON-like dictionaries (with keys: generated_at, dataset, total_questions, mcqs).
 
@@ -12,11 +12,11 @@ def merge_mcqs(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
     - Append any new mcqs that don't match existing keys at the end, preserving new order.
     - Keep entries without source_document at the end; existing ones first, then new ones.
     """
-    existing_mcqs: List[Dict[str, Any]] = existing.get("mcqs", []) if existing else []
-    new_mcqs: List[Dict[str, Any]] = new.get("mcqs", []) if new else []
+    existing_mcqs: list[dict[str, Any]] = existing.get("mcqs", []) if existing else []
+    new_mcqs: list[dict[str, Any]] = new.get("mcqs", []) if new else []
 
     # Prefer job_id as canonical key when present, fall back to source_document
-    def key_of(m: Dict[str, Any]) -> str | None:
+    def key_of(m: dict[str, Any]) -> str | None:
         md = m.get("metadata", {})
         if not isinstance(md, dict):
             return None

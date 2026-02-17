@@ -1,0 +1,31 @@
+version: "3.8"
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    command: ./scripts/run_api.sh --host 0.0.0.0 --port 8000
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_KEY=${API_KEY:-}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app
+
+  worker:
+    build: .
+    command: celery -A mcq_generator.celery_app.celery_app worker -Q mcq_jobs -l info
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app

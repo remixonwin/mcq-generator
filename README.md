@@ -2,88 +2,112 @@
 
 High-Performance MCQ Generator with intelligent filtering, caching, and state management.
 
-## Installation
+## Quick Start
 
 ```bash
-uv sync
+# Open interactive menu (default)
+mcq
+
+# Or use specific commands
+mcq --help
 ```
 
-## Usage
+## Interactive Menu
 
-```bash
-# Activate virtual environment
-source .venv/bin/activate
+Run `mcq` to open the main menu:
 
-# Interactive mode - search, select, and generate
-mcq interactive
+```
+╔══════════════════════════════════════╗
+║ MCQ Generator                        ║
+║ Your AI-powered quiz generation tool ║
+╚══════════════════════════════════════╝
+Running Jobs: 0
+Paused Jobs: 1
+Completed Jobs: 5
 
-# Search for datasets
-mcq search "sentiment"
-
-# Generate with continuous mode (until cancelled)
-mcq generate <dataset>
-
-# Generate with limited questions
-mcq generate <dataset> --questions 100
-
-# List all jobs
-mcq list-jobs
-
-# Check job status
-mcq status <job_id>
-
-# Show statistics
-mcq stats
-
-# Export MCQs
-mcq export <job_id> --format json --output export
+Main Menu:
+  1 - Search & Generate MCQs
+  2 - Manage Jobs (list, start, stop, view)
+  3 - Resume a paused/running job
+  4 - View Statistics
+  5 - Export MCQs
+  q - Quit
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `interactive` | Interactive search, select, and generate workflow |
-| `search` | Search for datasets on HuggingFace Hub |
-| `generate` | Generate MCQs from a HuggingFace dataset |
-| `resume` | Resume an interrupted job |
-| `list-jobs` | List all jobs |
-| `status` | Check job status |
-| `stats` | Show overall statistics |
-| `export` | Export MCQs in different formats |
+| `mcq` | Open interactive menu (default) |
+| `mcq list-jobs` | List all jobs |
+| `mcq list-jobs -i` | Interactive job management |
+| `mcq list-jobs --fix-stale` | Fix stalled jobs |
+| `mcq delete <job_id>` | Delete a job |
+| `mcq delete <job_id> --force` | Delete without confirmation |
+| `mcq export <job_id>` | Export MCQs |
 
-## Interactive Mode
+## Interactive Menu Options
 
-Run `mcq interactive` for a guided workflow:
+### Main Menu
+- **1** - Search & Generate MCQs
+- **2** - Manage Jobs (start, stop, view, delete)
+- **3** - Resume paused/running job
+- **4** - View Statistics
+- **5** - Export MCQs
+- **q** - Quit
 
-1. Enter search query (e.g., "sentiment", "qa")
-2. Browse results with pagination (n = next, q = done, c = cancel)
-3. Select a dataset by number
-4. Choose generation mode:
-   - **Limited**: Specify number of questions
-   - **Continuous**: Generate until cancelled/exhausted
-5. Enter output filename
-6. Start generation
+### Job Management
+- **1-n** - Select job by number
+- **s** - Start/Resume job
+- **p** - Pause/Stop job
+- **v** - View details
+- **l** - View logs
+- **d** - Delete job
+- **r** - Refresh list
+- **b** - Back to menu
+- **Ctrl+C** - Cancel
+
+### Search & Generate
+- Enter search query (e.g., "sentiment", "qa")
+- **n** - Next page
+- **q** - Done selecting
+- **c** - Cancel
+- Select dataset number
+- Choose mode (Limited/Continuous)
 
 ## Continuous Mode
 
 - Generates MCQs until:
-  - User presses Ctrl+C (interrupted)
+  - User presses Ctrl+C
   - Dataset is exhausted
   - Error occurs
-- **Auto-saves after each MCQ** - no data loss on interruption
-- Press Ctrl+C to stop gracefully (saves progress)
+- Auto-saves after each MCQ (no data loss)
 
-## Options
+## Keyboard Shortcuts
 
-### generate
-- `--questions, -n` - Number of questions (0 = continuous mode, default: 0)
-- `--output, -o` - Output file path (default: mcqs.json)
-- `--checkpoint` - Checkpoint interval (default: 10)
-- `--cache-dir` - Cache directory (default: .mcq_cache)
-- `--provider` - Provider URL (default: http://localhost:7543)
-- `--resume` - Job ID to resume
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` | Cancel current operation |
+| `q` | Quit/Back |
+| `c` | Cancel |
+| `n` | Next page |
+| `b` | Back to previous menu |
 
-### search
-- `--limit, -n` - Number of results (default: 10)
-- `--sort` - Sort by (downloads, likes)
+## Installation
+
+```bash
+uv sync
+```
+
+## API Server
+
+```bash
+# Run API server
+./scripts/run_api.sh
+
+# With custom host/port
+./scripts/run_api.sh --host 0.0.0.0 --port 8000
+
+# Or directly with uvicorn
+PYTHONPATH=src uvicorn mcq_generator.asgi:app --host 0.0.0.0 --port 8000
+```

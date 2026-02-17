@@ -6,10 +6,10 @@ dict containing a 'message' key with a 'content' string. The ProviderClient
 will call `adapt` before validating responses.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 
-def _find_choices(obj: Any) -> List:
+def _find_choices(obj: Any) -> list:
     """Recursively search an object for the first 'choices' list.
 
     Returns the list if found, otherwise an empty list.
@@ -29,7 +29,7 @@ def _find_choices(obj: Any) -> List:
     return []
 
 
-def adapt(resp_json: Any, request_data: Dict | None = None) -> Any:
+def adapt(resp_json: Any, request_data: dict | None = None) -> Any:
     """Attempt to adapt provider response shapes into the canonical form.
 
     This tries to be resilient to nested response wrappers (seen from Ollama,

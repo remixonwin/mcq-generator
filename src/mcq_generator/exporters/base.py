@@ -2,8 +2,8 @@
 Abstract base class for exporters.
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from abc import ABC
+from typing import Any
 
 
 class BaseExporter(ABC):
@@ -14,10 +14,10 @@ class BaseExporter(ABC):
         include_source: bool = True,
         include_explanation: bool = True,
         include_metadata: bool = True,
-        min_quality: Optional[float] = None,
-        max_quality: Optional[float] = None,
-        difficulty: Optional[str] = None,
-        topic: Optional[str] = None,
+        min_quality: float | None = None,
+        max_quality: float | None = None,
+        difficulty: str | None = None,
+        topic: str | None = None,
     ):
         self.include_source = include_source
         self.include_explanation = include_explanation
@@ -37,7 +37,7 @@ class BaseExporter(ABC):
         """Return the expected file extension for this format."""
         raise NotImplementedError("Subclasses must implement file_extension")
 
-    def export(self, mcqs: List[Dict[str, Any]], output_file: Optional[str] = None) -> str:
+    def export(self, mcqs: list[dict[str, Any]], output_file: str | None = None) -> str:
         """
         Export MCQs to the specified output file or return as string.
         
@@ -50,56 +50,56 @@ class BaseExporter(ABC):
         """
         raise NotImplementedError("Subclasses must implement export")
 
-    def filter_by_quality(self, mcqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_by_quality(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter MCQs by quality score."""
         filtered = mcqs
-        
+
         if self.min_quality is not None:
             filtered = [
                 mcq for mcq in filtered
                 if mcq.get("quality_score", 0) >= self.min_quality
             ]
-        
+
         if self.max_quality is not None:
             filtered = [
                 mcq for mcq in filtered
                 if mcq.get("quality_score", 0) <= self.max_quality
             ]
-        
+
         return filtered
 
-    def filter_by_difficulty(self, mcqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_by_difficulty(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter MCQs by difficulty level."""
         if not self.difficulty:
             return mcqs
-        
+
         return [
             mcq for mcq in mcqs
             if mcq.get("metadata", {}).get("difficulty") == self.difficulty
         ]
 
-    def filter_by_topic(self, mcqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_by_topic(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter MCQs by topic category (substring match)."""
         if not self.topic:
             return mcqs
-        
+
         topic_filter = self.topic
         return [
             mcq for mcq in mcqs
             if topic_filter.lower() in str(mcq.get("metadata", {}).get("topic_category") or "").lower()
         ]
 
-    def apply_filters(self, mcqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def apply_filters(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Apply all filters to MCQs."""
         filtered = self.filter_by_quality(mcqs)
         filtered = self.filter_by_difficulty(filtered)
         filtered = self.filter_by_topic(filtered)
         return filtered
 
-    def get_filters_used(self) -> Dict[str, Any]:
+    def get_filters_used(self) -> dict[str, Any]:
         """Get dictionary of filters that were applied."""
-        filters: Dict[str, Any] = {}
-        
+        filters: dict[str, Any] = {}
+
         if self.min_quality is not None:
             filters["min_quality"] = self.min_quality
         if self.max_quality is not None:
@@ -108,5 +108,5 @@ class BaseExporter(ABC):
             filters["difficulty"] = self.difficulty
         if self.topic is not None:
             filters["topic"] = self.topic
-            
+
         return filters
