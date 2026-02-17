@@ -127,7 +127,10 @@ class MCQGenerator:
         generated_count = 0
         processed_indices = []
         consecutive_failures = 0
-        max_consecutive_failures = 50
+        # Allow disabling the hard failure limit via config.CONSECUTIVE_FAILURE_LIMIT
+        # If None, the generator will not abort on a fixed number of failures and
+        # will instead perform periodic exponential backoff when failures accumulate.
+        failure_limit = config.CONSECUTIVE_FAILURE_LIMIT
         total_processed = 0
 
         try:
@@ -152,12 +155,14 @@ class MCQGenerator:
 
             # counters initialized above before try/except
 
-            # Backoff strategy when many consecutive failures occur: instead of
+            # Backoff strategy when consecutive failures accumulate: instead of
             # cancelling the job, wait and retry to allow transient infra issues
             # (provider flakiness, rate limits, network blips) to recover.
-            backoff_seconds = 30
-            backoff_multiplier = 2
-            max_backoff_seconds = 1800  # 30 minutes
+            backoff_seconds = config.BACKOFF_INITIAL_SECONDS
+            backoff_multiplier = config.BACKOFF_MULTIPLIER
+            max_backoff_seconds = config.BACKOFF_MAX_SECONDS  # 30 minutes default
+            # If failure_limit is None, use BACKOFF_TRIGGER to decide when to back off
+            backoff_trigger = config.BACKOFF_TRIGGER
 
             for idx in indices:
                 if generated_count >= target_questions:
@@ -172,20 +177,32 @@ class MCQGenerator:
 
                 retry_attempts = 0
                 while True:  # Retry loop for infrastructure failures
-                    if consecutive_failures >= max_consecutive_failures:
-                        # Perform an exponential backoff and continue instead of
-                        # aborting the whole job. This avoids cancelling long-running
-                        # jobs due to transient provider problems.
+                    # Decide whether to perform backoff. If a hard failure_limit is
+                    # configured, use that; otherwise perform backoff every
+                    # `backoff_trigger` failures.
+                    should_backoff = False
+                    if failure_limit is not None:
+                        if consecutive_failures >= failure_limit:
+                            should_backoff = True
+                    else:
+                        if consecutive_failures > 0 and consecutive_failures % backoff_trigger == 0:
+                            should_backoff = True
+
+                    if should_backoff:
                         logger.warning(
-                            f"Consecutive failures reached {consecutive_failures}. "
+                            f"Consecutive failures: {consecutive_failures}. "
                             f"Sleeping for {backoff_seconds}s before retrying."
                         )
                         await asyncio.sleep(backoff_seconds)
                         backoff_seconds = min(
                             backoff_seconds * backoff_multiplier, max_backoff_seconds
                         )
-                        # reset the consecutive failure counter so we can keep trying
-                        consecutive_failures = 0
+                        # When using a hard limit we reset the counter after backoff to
+                        # allow further retries; when using periodic backoff we keep the
+                        # counter so the system can continue to make decisions based on
+                        # the full failure history.
+                        if failure_limit is not None:
+                            consecutive_failures = 0
                         # retry the same document
                         continue
 
@@ -219,7 +236,7 @@ class MCQGenerator:
                             retry_attempts += 1
                             if consecutive_failures % 10 == 0:
                                 logger.warning(
-                                    f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}"
+                                    f"Consecutive failures: {consecutive_failures}/{failure_limit or 'N/A'}"
                                 )
                         break  # Successfully processed (either MCQ or skip), move to next doc
 
