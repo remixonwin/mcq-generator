@@ -1,0 +1,46 @@
+[project]
+name = "mcq-generator"
+version = "2.0.0"
+description = "High-Performance MCQ Generator with Intelligent Caching and State Management"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=2.14.0",
+    "duckdb>=0.10.0",
+    "diskcache>=5.6.0",
+    "openai>=1.0.0",
+    "httpx[http2]>=0.26.0",
+    "tenacity>=8.2.0",
+    "rich>=13.7.0",
+    "typer>=0.9.0",
+    "orjson>=3.9.0",
+    "pydantic>=2.0.0",
+    "reportlab>=4.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+mcq = "mcq_generator.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,168 @@
+{
+  "generated_at": "2026-02-16T23:50:45.865403",
+  "dataset": "teyler/epstein-files-20k",
+  "total_questions": 5,
+  "mcqs": [
+    {
+      "question": "What was the alleged age of one of Jeffrey Epstein's accusers when Ghislaine Maxwell procured them for him at a country club in Palm Beach?",
+      "options": [
+        "15 years old",
+        "18 years old",
+        "21 years old"
+      ],
+      "correct_answer": 0,
+      "explanation": "The question refers to a publicly alleged incident involving Ghislaine Maxwell, who is accused of procuring minors for Jeffrey Epstein. According to reports, one of Epstein's accusers was allegedly 15 years old when they were introduced to him at the Mar-a-Lago country club in Palm Beach, Florida.",
+      "metadata": {
+        "source_document": "teyler/epstein-files-20k_449882",
+        "source_id": "teyler/epstein-files-20k_449882",
+        "source_url": "",
+        "document_hash": "ed9f2bd47276fb3f54791fa5276d7a82863e20708855b4da4d4065da28159389",
+        "specific_names": [
+          "Jeffrey Epstein",
+          "Ghislaine Maxwell"
+        ],
+        "specific_places": [
+          "Mar-a-Lago",
+          "Palm Beach",
+          "Florida"
+        ],
+        "specific_dates": [
+          "Not specified"
+        ],
+        "specific_events": [
+          "Procurement of minors for sexual abuse"
+        ],
+        "timestamp": "2026-02-16T23:48:39.352234",
+        "difficulty": "Hard",
+        "topic_category": "Jeffrey Epstein's sex trafficking case",
+        "quality_score": 67.6
+      },
+      "source_text": "publicly alleged that Ghislaine procured them for Epstein, one at age 15 from a Mar-a-Lago country club locker "
+    },
+    {
+      "question": "What occurs when a piece of scenery disappears from the audience's view, leading to an elaborate game of Tetris?",
+      "options": [
+        "A sudden power outage at the theater",
+        "The most intricate puzzle of chess begins to materialize",
+        "An elaborate game of Tetris starts as the scenery disappears"
+      ],
+      "correct_answer": 2,
+      "explanation": "This question requires the test-taker to understand the context provided, where a piece of scenery disappearing from view leads to an elaborate game of Tetris. Option C is correct because it directly corresponds with the scenario described in the document.",
+      "metadata": {
+        "source_document": "teyler/epstein-files-20k_1964676",
+        "source_id": "teyler/epstein-files-20k_1964676",
+        "source_url": "",
+        "document_hash": "b07085f74547cd40686339dda3faeb11d56d1c3d67cd92302a0eb330bbd25cb6",
+        "specific_names": [
+          "None mentioned"
+        ],
+        "specific_places": [
+          "None specified"
+        ],
+        "specific_dates": [
+          "None mentioned"
+        ],
+        "specific_events": [
+          "The disappearance of scenery and its subsequent effect on gameplay"
+        ],
+        "timestamp": "2026-02-16T23:49:33.041831",
+        "difficulty": "Easy",
+        "topic_category": "Unusual Events or Phenomena",
+        "quality_score": 55.6
+      },
+      "source_text": "piece of scenery disappears from the audience's view, the most elaborate game of Tetris begins, as the "
+    },
+    {
+      "question": "What is the most promising hypothesis regarding the difference between humans and apes, according to Charles Darwin's theory?",
+      "options": [
+        "The Great Chain of Being, which proposes a hierarchical structure of life forms",
+        "Natural Selection, which suggests that species evolve over time through adaptation and mutation",
+        "Lamarckism, which states that organisms pass on acquired characteristics to their offspring"
+      ],
+      "correct_answer": 1,
+      "explanation": "According to Charles Darwin's theory, as presented in his book \"On the Origin of Species\" (1859), Natural Selection is the most promising hypothesis regarding the difference between humans and apes. This theory proposes that species evolve over time through adaptation and mutation, leading to the diversity of life on Earth.",
+      "metadata": {
+        "source_document": "teyler/epstein-files-20k_1785768",
+        "source_id": "teyler/epstein-files-20k_1785768",
+        "source_url": "",
+        "document_hash": "a097a121be9133eb4d746127e452bc91549d754f36df7c3d86997a62d66b74ea",
+        "specific_names": [
+          "Charles Darwin"
+        ],
+        "specific_places": [],
+        "specific_dates": [
+          "1859"
+        ],
+        "specific_events": [
+          "Publication of \"On the Origin of Species\""
+        ],
+        "timestamp": "2026-02-16T23:49:58.448263",
+        "difficulty": "Medium",
+        "topic_category": "Evolutionary Biology",
+        "quality_score": 53.45333333333333
+      },
+      "source_text": "it seems to most promising hypothesis IMHO) that the difference between humans and apes is not a very"
+    },
+    {
+      "question": "What is the implication of MLPF&S acting as an investment adviser to a client?",
+      "options": [
+        "It means they can offer financial planning services",
+        "It implies that they have fiduciary duty towards all clients, not just the one they contracted with",
+        "It simply confirms their role in managing investment portfolios"
+      ],
+      "correct_answer": 1,
+      "explanation": "The document states that MLPF&S may be deemed to be acting as an investment adviser solely to the person with whom they have contracted directly. This implies that they do not have a fiduciary duty towards all clients, but only towards the specific client with whom they have a direct contract.",
+      "metadata": {
+        "source_document": "teyler/epstein-files-20k_370524",
+        "source_id": "teyler/epstein-files-20k_370524",
+        "source_url": "",
+        "document_hash": "0f29c404086b0cf69afddbb2223258b9a9bf9eb8cae6693496436057e84b9792",
+        "specific_names": [
+          "MLPF&S"
+        ],
+        "specific_places": [
+          "None mentioned"
+        ],
+        "specific_dates": [
+          "None mentioned"
+        ],
+        "specific_events": [
+          "None mentioned"
+        ],
+        "timestamp": "2026-02-16T23:50:24.525098",
+        "difficulty": "Medium",
+        "topic_category": "Investment Adviser and Fiduciary Duty",
+        "quality_score": 55.074999999999996
+      },
+      "source_text": "therewith MLPF&S may be deemed to be acting as an investment adviser, such status relates, if at all, solely to the person with whom MLPF&S has contracted directly and does not extend"
+    },
+    {
+      "question": "What does Keating say about Greenspan?",
+      "options": [
+        "Greenspan is someone who is always controversial.",
+        "Greenspan is someone that Keating knows and likes.",
+        "Greenspan is someone who is a close friend of Keating's."
+      ],
+      "correct_answer": 1,
+      "explanation": "This question requires the test-taker to understand the context of the quote from Keating about Greenspan. The correct answer is based on the specific words used by Keating, which indicate a positive and personal relationship with Greenspan.",
+      "metadata": {
+        "source_document": "teyler/epstein-files-20k_603802",
+        "source_id": "teyler/epstein-files-20k_603802",
+        "source_url": "",
+        "document_hash": "eb23466bd1f81346ab8bea3639e1801fca37211306890714945f8e5902f10aa6",
+        "specific_names": [
+          "Keating",
+          "Greenspan"
+        ],
+        "specific_places": [],
+        "specific_dates": [],
+        "specific_events": [],
+        "timestamp": "2026-02-16T23:50:45.838404",
+        "difficulty": "Easy",
+        "topic_category": "Relationships and opinions",
+        "quality_score": 45.428333333333335
+      },
+      "source_text": "\"\"Greenspan is someone | know and like,\"\" Keating says. \"\"But if you are so naive to believe that institutions with a"
+    }
+  ]
+}

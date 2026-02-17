@@ -1,0 +1,37 @@
+# MCQ Export - GIFT Format
+
+::Jeffrey Epstein's sex trafficking case::What was the alleged age of one of Jeffrey Epstein's accusers when Ghislaine Maxwell procured them for him at a country club in Palm Beach?{
+    =15 years old
+    ~18 years old
+    ~21 years old
+    # The question refers to a publicly alleged incident involving Ghislaine Maxwell, who is accused of procuring minors for Jeffrey Epstein. According to reports, one of Epstein's accusers was allegedly 15 years old when they were introduced to him at the Mar-a-Lago country club in Palm Beach, Florida.
+}
+
+::Unusual Events or Phenomena::What occurs when a piece of scenery disappears from the audience's view, leading to an elaborate game of Tetris?{
+    ~A sudden power outage at the theater
+    ~The most intricate puzzle of chess begins to materialize
+    =An elaborate game of Tetris starts as the scenery disappears
+    # This question requires the test-taker to understand the context provided, where a piece of scenery disappearing from view leads to an elaborate game of Tetris. Option C is correct because it directly corresponds with the scenario described in the document.
+}
+
+::Evolutionary Biology::What is the most promising hypothesis regarding the difference between humans and apes, according to Charles Darwin's theory?{
+    ~The Great Chain of Being, which proposes a hierarchical structure of life forms
+    =Natural Selection, which suggests that species evolve over time through adaptation and mutation
+    ~Lamarckism, which states that organisms pass on acquired characteristics to their offspring
+    # According to Charles Darwin's theory, as presented in his book "On the Origin of Species" (1859), Natural Selection is the most promising hypothesis regarding the difference between humans and apes. This theory proposes that species evolve over time through adaptation and mutation, leading to the diversity of life on Earth.
+}
+
+::Investment Adviser and Fiduciary Duty::What is the implication of MLPF&S acting as an investment adviser to a client?{
+    ~It means they can offer financial planning services
+    =It implies that they have fiduciary duty towards all clients, not just the one they contracted with
+    ~It simply confirms their role in managing investment portfolios
+    # The document states that MLPF&S may be deemed to be acting as an investment adviser solely to the person with whom they have contracted directly. This implies that they do not have a fiduciary duty towards all clients, but only towards the specific client with whom they have a direct contract.
+}
+
+::Relationships and opinions::What does Keating say about Greenspan?{
+    ~Greenspan is someone who is always controversial.
+    =Greenspan is someone that Keating knows and likes.
+    ~Greenspan is someone who is a close friend of Keating's.
+    # This question requires the test-taker to understand the context of the quote from Keating about Greenspan. The correct answer is based on the specific words used by Keating, which indicate a positive and personal relationship with Greenspan.
+}
+
