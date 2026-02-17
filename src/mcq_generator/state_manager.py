@@ -189,6 +189,17 @@ class StateManager:
         # Upsert: update if exists, otherwise insert. Only increment generated_count
         # on new insert to avoid double-counting when resuming.
         # Wrap DB operations in a retry loop to avoid transient conflicts.
+        # Ensure mcq_data metadata explicitly contains job_id and document_index
+        try:
+            if isinstance(mcq_data, dict):
+                md = mcq_data.get("metadata", {})
+                if isinstance(md, dict):
+                    md.setdefault("job_id", job_id)
+                    md.setdefault("document_index", document_index)
+                    mcq_data["metadata"] = md
+        except Exception:
+            pass
+
         max_attempts = 5
         delay = 0.05
         inserted = False
@@ -243,6 +254,17 @@ class StateManager:
                     raise
                 time.sleep(delay)
                 delay = min(delay * 2, 2.0)
+
+        # Ensure mcq_data metadata explicitly contains job_id and document_index
+        try:
+            if isinstance(mcq_data, dict):
+                md = mcq_data.get("metadata", {})
+                if isinstance(md, dict):
+                    md.setdefault("job_id", job_id)
+                    md.setdefault("document_index", document_index)
+                    mcq_data["metadata"] = md
+        except Exception:
+            pass
 
         # Best-effort exports: NDJSON + aggregated JSON in .mcq_exports
         try:
@@ -307,6 +329,46 @@ class StateManager:
         except Exception:
             logger.debug("Failed to write autosave ndjson file for mcq")
 
+        # Verification: ensure mcq row exists after upsert. If we expected an
+        # insert (inserted=True) but the row isn't present, attempt a direct
+        # insert to repair the inconsistency. This protects against cases where
+        # the generated_count was incremented but the insert didn't persist.
+        try:
+            row = self.conn.execute(
+                "SELECT COUNT(1) FROM mcq_results WHERE mcq_id = ?",
+                [mcq_id],
+            ).fetchone()
+            exists_now = int(row[0]) if row else 0
+            if inserted and exists_now == 0:
+                logger.warning(
+                    "mcq_results inconsistency detected for %s: expected inserted but row missing, repairing",
+                    mcq_id,
+                )
+                # Try to insert directly (idempotent check first)
+                try:
+                    self.conn.execute(
+                        "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score) VALUES (?, ?, ?, ?, ?, ?)",
+                        [
+                            mcq_id,
+                            job_id,
+                            document_index,
+                            document_hash,
+                            json.dumps(mcq_data, default=str),
+                            quality_score,
+                        ],
+                    )
+                    # Ensure generated_count reflects reality
+                    self.conn.execute(
+                        "UPDATE jobs SET generated_count = (SELECT COUNT(1) FROM mcq_results WHERE job_id = ?), updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                        [job_id, job_id],
+                    )
+                    logger.info("Repaired mcq_results and synced generated_count for %s", job_id)
+                except Exception as e:
+                    logger.error("Failed to repair missing mcq row %s: %s", mcq_id, e)
+        except Exception:
+            # Non-fatal: continue
+            pass
+
     def get_job_progress(self, job_id: str) -> dict:
         """Get current progress for a job."""
         result = self.conn.execute(
@@ -345,6 +407,126 @@ class StateManager:
             "completed_at": completed_at,
             "progress_pct": (result[5] / result[3] * 100) if result[3] > 0 else 0,
         }
+
+    def count_mcq_rows(self, job_id: str) -> int:
+        """Return the number of mcq_results rows for a job."""
+        row = self.conn.execute(
+            "SELECT COUNT(1) FROM mcq_results WHERE job_id = ?",
+            [job_id],
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def sync_generated_count(self, job_id: str) -> int:
+        """Ensure jobs.generated_count matches the number of mcq_results rows.
+
+        Returns the synchronized count.
+        """
+        actual = self.count_mcq_rows(job_id)
+        # Small retry loop like update_job_status
+        max_attempts = 3
+        delay = 0.05
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.conn.execute(
+                    "UPDATE jobs SET generated_count = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                    [actual, job_id],
+                )
+                break
+            except duckdb.IOException as e:
+                logger.debug(
+                    "Transient DuckDB error syncing generated_count (attempt %d/%d): %s",
+                    attempt,
+                    max_attempts,
+                    e,
+                )
+                if attempt == max_attempts:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
+
+        return actual
+
+    def restore_missing_mcqs(self, job_id: str, export_dir: str = ".mcq_exports") -> int:
+        """Best-effort restore of MCQs from .mcq_exports/<job_id>.ndjson or .json into the DB.
+
+        Returns the number of MCQs restored/inserted.
+        """
+        from pathlib import Path
+
+        restored = 0
+        export_path_nd = Path(export_dir) / f"{job_id}.ndjson"
+        export_path_json = Path(export_dir) / f"{job_id}.json"
+
+        def _iter_entries():
+            if export_path_nd.exists():
+                with export_path_nd.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            yield json.loads(line)
+                        except Exception:
+                            continue
+            elif export_path_json.exists():
+                try:
+                    data = json.loads(export_path_json.read_text(encoding="utf-8"))
+                    for entry in data.get("mcqs", []):
+                        yield entry
+                except Exception:
+                    return
+
+        # Insert missing rows directly for robustness (avoid relying on save_mcq
+        # which has more complex upsert logic). We perform a simple existence
+        # check per mcq_id and insert when absent.
+        for entry in _iter_entries():
+            try:
+                md = entry.get("metadata", {})
+                src = md.get("source_document", "")
+                doc_index = None
+                if isinstance(src, str) and "_" in src:
+                    try:
+                        doc_index = int(src.split("_")[-1])
+                    except Exception:
+                        doc_index = None
+
+                # If document index couldn't be parsed, assign a new sequential
+                # index based on current max for this job so we can insert a
+                # non-null document_index (schema requires it).
+                if doc_index is None:
+                    row = self.conn.execute(
+                        "SELECT COALESCE(MAX(document_index), -1) FROM mcq_results WHERE job_id = ?",
+                        [job_id],
+                    ).fetchone()
+                    max_idx = int(row[0]) if row and row[0] is not None else -1
+                    doc_index = max_idx + 1
+
+                mcq_id = f"{job_id}_mcq_{doc_index}"
+                row = self.conn.execute(
+                    "SELECT COUNT(1) FROM mcq_results WHERE mcq_id = ?",
+                    [mcq_id],
+                ).fetchone()
+                exists = int(row[0]) if row else 0
+                if exists:
+                    continue
+
+                # Insert directly
+                self.conn.execute(
+                    "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score) VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        mcq_id,
+                        job_id,
+                        doc_index,
+                        md.get("document_hash", ""),
+                        json.dumps(entry, default=str),
+                        float(entry.get("quality_score", 0.0)),
+                    ],
+                )
+                restored += 1
+            except Exception:
+                # skip problematic entries
+                continue
+
+        # After attempting restore, resync generated_count
+        self.sync_generated_count(job_id)
+        return restored
 
     def list_jobs(self, status: Optional[str] = None) -> list[dict]:
         """List all jobs, optionally filtered by status."""

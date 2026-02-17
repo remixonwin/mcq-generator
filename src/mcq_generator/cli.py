@@ -254,8 +254,53 @@ def _save_incremental(output_path: Path, mcqs: list, dataset_name: str):
     try:
         root_path = Path("mcqs.json")
         tmp_root = root_path.with_suffix(root_path.suffix + ".tmp")
-        tmp_root.write_text(json.dumps(output_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp_root.replace(root_path)
+        # Merge with existing root mcqs.json instead of overwriting to avoid
+        # losing MCQs from other jobs. We key entries by
+        # metadata.source_document when available.
+        if root_path.exists():
+            try:
+                existing = json.loads(root_path.read_text(encoding="utf-8"))
+                existing_mcqs = existing.get("mcqs", [])
+            except Exception:
+                existing = {
+                    "generated_at": datetime.now().isoformat(),
+                    "dataset": None,
+                    "total_questions": 0,
+                    "mcqs": [],
+                }
+                existing_mcqs = []
+
+            # Build map by source_document
+            merged_map = {}
+            others = []
+            for m in existing_mcqs:
+                key = m.get("metadata", {}).get("source_document")
+                if key:
+                    merged_map[key] = m
+                else:
+                    others.append(m)
+
+            for m in serializable_mcqs:
+                key = m.get("metadata", {}).get("source_document")
+                if key:
+                    merged_map[key] = m
+                else:
+                    others.append(m)
+
+            merged_mcqs = list(merged_map.values()) + others
+            existing["mcqs"] = merged_mcqs
+            existing["total_questions"] = len(merged_mcqs)
+            existing["generated_at"] = datetime.now().isoformat()
+
+            tmp_root.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            tmp_root.replace(root_path)
+        else:
+            tmp_root.write_text(
+                json.dumps(output_data, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            tmp_root.replace(root_path)
     except Exception:
         # Non-fatal: continue without blocking generation
         console.print("[yellow]Warning: failed to update top-level mcqs.json[/yellow]")
@@ -437,6 +482,42 @@ async def _run_generation_loop(
             ):
                 if not generation_running:
                     console.print("\n[yellow]Generation stopped.[/yellow]")
+                    # If this was a resumed job, persist a final checkpoint and
+                    # mark the job as paused so the CLI reflects the true state.
+                    if resume_job_id:
+                        try:
+                            # Best-effort: infer last processed index from the
+                            # last MCQ's metadata if available.
+                            if mcqs:
+                                try:
+                                    last_md = mcqs[-1].get("metadata", {})
+                                    # metadata.source_document is like '<dataset>_<index>'
+                                    sd = last_md.get("source_document", "")
+                                    last_index = int(sd.split("_")[-1])
+                                except Exception:
+                                    last_index = max(0, 0)
+                            else:
+                                last_index = max(0, 0)
+
+                            # Save checkpoint (processed_indices optional here)
+                            await generator._save_checkpoint(
+                                job_id=resume_job_id,
+                                last_index=last_index,
+                                processed_indices=[],
+                                generated_count=len(mcqs),
+                            )
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Warning: failed to save checkpoint: {e}[/yellow]"
+                            )
+
+                        try:
+                            generator.state.update_job_status(resume_job_id, "paused")
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Warning: failed to set job status to paused: {e}[/yellow]"
+                            )
+
                     break
 
                 mcq_dict = mcq.to_dict()
@@ -452,11 +533,70 @@ async def _run_generation_loop(
                         src = output_path.with_suffix(".json")
                         dst = Path("mcqs.json")
                         if src.exists():
-                            # atomic copy via read/write
-                            data = src.read_text(encoding="utf-8")
-                            tmp = dst.with_suffix(dst.suffix + ".tmp")
-                            tmp.write_text(data, encoding="utf-8")
-                            tmp.replace(dst)
+                            # Merge current job autosave into root `mcqs.json` to avoid
+                            # overwriting MCQs from other jobs. We match on
+                            # `metadata.source_document` (format: <dataset>_<index>)
+                            try:
+                                new_data = json.loads(src.read_text(encoding="utf-8"))
+                                new_mcqs = new_data.get("mcqs", [])
+
+                                if dst.exists():
+                                    try:
+                                        existing = json.loads(dst.read_text(encoding="utf-8"))
+                                        existing_mcqs = existing.get("mcqs", [])
+                                    except Exception:
+                                        existing = {
+                                            "generated_at": datetime.now().isoformat(),
+                                            "dataset": None,
+                                            "total_questions": 0,
+                                            "mcqs": [],
+                                        }
+                                        existing_mcqs = []
+                                else:
+                                    existing = {
+                                        "generated_at": datetime.now().isoformat(),
+                                        "dataset": None,
+                                        "total_questions": 0,
+                                        "mcqs": [],
+                                    }
+                                    existing_mcqs = []
+
+                                # Build a map keyed by source_document to preserve and
+                                # update existing entries without losing other jobs'
+                                merged_map = {}
+                                others = []
+                                for m in existing_mcqs:
+                                    key = m.get("metadata", {}).get("source_document")
+                                    if key:
+                                        merged_map[key] = m
+                                    else:
+                                        others.append(m)
+
+                                for m in new_mcqs:
+                                    key = m.get("metadata", {}).get("source_document")
+                                    if key:
+                                        merged_map[key] = m
+                                    else:
+                                        others.append(m)
+
+                                merged_mcqs = list(merged_map.values()) + others
+                                existing["mcqs"] = merged_mcqs
+                                existing["total_questions"] = len(merged_mcqs)
+                                existing["generated_at"] = datetime.now().isoformat()
+
+                                tmp = dst.with_suffix(dst.suffix + ".tmp")
+                                tmp.write_text(
+                                    json.dumps(existing, indent=2, ensure_ascii=False),
+                                    encoding="utf-8",
+                                )
+                                tmp.replace(dst)
+                            except Exception:
+                                # If merging fails for any reason, fall back to
+                                # copying the autosave file instead of crashing.
+                                data = src.read_text(encoding="utf-8")
+                                tmp = dst.with_suffix(dst.suffix + ".tmp")
+                                tmp.write_text(data, encoding="utf-8")
+                                tmp.replace(dst)
                 except Exception:
                     console.print(
                         "[yellow]Warning: failed to mirror autosave to mcqs.json[/yellow]"
@@ -555,6 +695,24 @@ def resume(
     # so the generator may open its own connection safely.
     state = StateManager()
     progress_info = state.get_job_progress(job_id)
+
+    # Ensure DB counts match exports before resuming. If mcq_results rows
+    # are missing (due to prior partial failures), attempt a best-effort
+    # restore from the job exports and sync the generated_count so the CLI
+    # and generator see consistent state.
+    try:
+        db_count = state.count_mcq_rows(job_id)
+        if db_count != progress_info.get("generated_count", 0):
+            console.print(
+                f"[yellow]Inconsistent DB counts detected (jobs.generated_count={progress_info.get('generated_count')} vs mcq_results={db_count}). Attempting repair from exports...[/yellow]"
+            )
+            restored = state.restore_missing_mcqs(job_id)
+            if restored:
+                console.print(f"[green]Restored {restored} MCQs from exports into DB.[/green]")
+            # Re-read progress info after repair
+            progress_info = state.get_job_progress(job_id)
+    except Exception as e:
+        console.print(f"[yellow]Warning: failed to verify/repair DB before resume: {e}[/yellow]")
 
     console.print(
         Panel(
