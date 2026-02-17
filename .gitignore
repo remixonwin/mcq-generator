@@ -70,3 +70,5 @@ mcq_state.duckdb.wal
 uv.lock
 .mcq_exports/
 .env
+.mcq_resume.pid
+.mcq_resume.log

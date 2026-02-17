@@ -248,19 +248,28 @@ class ProviderClient:
                     except Exception:
                         dump_content["body"] = body_text
 
-                    # Redact known sensitive fields in the request before writing
+                    # Redact known sensitive fields in the request before writing.
+                    # Use substring matching to catch nested/variant keys like
+                    # "apiKey", "x-api-key", "user_token", "authorizationBearer".
+                    sensitive_substrings = (
+                        "api_key",
+                        "apikey",
+                        "authorization",
+                        "auth",
+                        "token",
+                        "access_token",
+                        "secret",
+                        "passwd",
+                        "password",
+                        "bearer",
+                    )
+
                     def _redact(obj):
                         if isinstance(obj, dict):
                             out = {}
                             for k, v in obj.items():
                                 lk = k.lower()
-                                if lk in (
-                                    "api_key",
-                                    "authorization",
-                                    "token",
-                                    "access_token",
-                                    "apikey",
-                                ):
+                                if any(sub in lk for sub in sensitive_substrings):
                                     out[k] = "REDACTED"
                                 else:
                                     out[k] = _redact(v)
@@ -277,6 +286,25 @@ class ProviderClient:
                     dump_file.write_text(
                         json.dumps(dump_content, indent=2, ensure_ascii=False), encoding="utf-8"
                     )
+
+                    # Rotate old dumps to limit disk usage (best-effort).
+                    try:
+                        retention = (
+                            config.DUMP_RETENTION if hasattr(config, "DUMP_RETENTION") else 200
+                        )
+                        files = sorted(
+                            dump_dir.glob("provider_response_*.json"),
+                            key=lambda p: p.stat().st_mtime,
+                        )
+                        if len(files) > retention:
+                            for old in files[: max(0, len(files) - retention)]:
+                                try:
+                                    old.unlink()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # Don't fail the whole operation for dump rotation issues
+                        pass
                 except Exception as dump_e:
                     logger.debug(
                         f"Failed to write structured provider dump: {dump_e}\n{traceback.format_exc()}"

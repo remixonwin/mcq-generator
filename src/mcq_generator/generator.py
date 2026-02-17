@@ -28,6 +28,12 @@ class InfrastructureError(Exception):
     pass
 
 
+class ContentParseError(Exception):
+    """Raised when LLM returned content that couldn't be parsed into an MCQ."""
+
+    pass
+
+
 @dataclass
 class MCQMetadata:
     """Metadata for generated MCQ."""
@@ -232,8 +238,11 @@ class MCQGenerator:
                                     generated_count=generated_count,
                                 )
                         else:
-                            consecutive_failures += 1
+                            # Content parse failure or generation returned None.
+                            # Count as content failure only when configured to do so.
                             retry_attempts += 1
+                            if config.COUNT_CONTENT_FAILURES:
+                                consecutive_failures += 1
                             if consecutive_failures % 10 == 0:
                                 logger.warning(
                                     f"Consecutive failures: {consecutive_failures}/{failure_limit or 'N/A'}"
@@ -247,12 +256,37 @@ class MCQGenerator:
                         continue
                     except Exception as e:
                         logger.error(f"Unexpected error processing doc {idx}: {e}")
+                        # Unexpected exceptions likely indicate infra or code issues.
+                        # Count them as infra so we retry the same document after a pause.
                         consecutive_failures += 1
                         break  # Move to next document
 
             # Completed processing indices
             self.state.update_job_status(job_id, "completed")
             logger.info(f"Job {job_id} completed: {generated_count} MCQs generated")
+
+        except (KeyboardInterrupt, asyncio.CancelledError) as e:
+            # User-requested stop (Ctrl-C) or task cancellation. Persist a
+            # checkpoint and mark job as paused so the user can resume later.
+            logger.info(f"Job {job_id} interrupted by user: {e}. Saving checkpoint and pausing.")
+            try:
+                last_idx = processed_indices[-1] if processed_indices else max(0, start_index - 1)
+                await self._save_checkpoint(
+                    job_id=job_id,
+                    last_index=last_idx,
+                    processed_indices=processed_indices,
+                    generated_count=generated_count,
+                )
+            except Exception as cp_e:
+                logger.warning(f"Failed to save checkpoint on interrupt: {cp_e}")
+
+            try:
+                self.state.update_job_status(job_id, "paused")
+            except Exception as se:
+                logger.error(f"Failed to update job status to paused: {se}")
+
+            # Re-raise so the process/task actually stops instead of continuing
+            raise
 
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}")
@@ -357,6 +391,14 @@ class MCQGenerator:
                 raise InfrastructureError(f"Malformed provider response: {e}")
 
             mcq = self._parse_response(content, text, f"{dataset_name}_{document_index}")
+
+            if mcq is None:
+                # Explicitly raise a ContentParseError so the caller can decide
+                # whether to treat this as a content failure (increment counter)
+                # or an infrastructure issue. By default we will treat content
+                # parse failures as non-infra so the generator can choose how to
+                # count them based on config.
+                raise ContentParseError("Incomplete or unparsable MCQ content")
 
             return mcq
 
