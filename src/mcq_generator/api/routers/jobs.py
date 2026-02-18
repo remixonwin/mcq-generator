@@ -21,6 +21,7 @@ from ..schemas import (
     ErrorResponse,
     JobListResponse,
     JobProgress,
+    MCQListResponse,
     ResumeJobResponse,
     StatusEnum,
     UpdateJobStatusRequest,
@@ -238,6 +239,7 @@ def delete_job(
 
 @router.get(
     "/{job_id}/mcqs",
+    response_model=MCQListResponse,
     summary="Get job MCQs",
     description="Get all generated MCQs for a job.",
     responses={
@@ -248,7 +250,7 @@ def get_job_mcqs(
     job_id: str,
     sm: StateManager = Depends(get_state_manager),
     api_key: str | None = Depends(get_api_key),
-):
+) -> MCQListResponse:
     """Get all MCQs for a job."""
     from ..services import ExportService
 

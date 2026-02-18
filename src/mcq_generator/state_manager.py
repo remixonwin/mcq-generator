@@ -708,25 +708,28 @@ class StateManager:
     def get_mcqs(self, job_id: str) -> list[dict]:
         """Get all MCQs for a job."""
         results = self.conn.execute(
-            "SELECT mcq_json, quality_score, synth_columns, created_at FROM mcq_results WHERE job_id = ? ORDER BY document_index",
+            "SELECT mcq_json, quality_score, synth_columns, created_at FROM mcq_results WHERE TRIM(job_id) = ? ORDER BY document_index",
             [job_id],
         ).fetchall()
 
         out = []
         for row in results:
-            created_at = row[2]
-            if isinstance(created_at, datetime):
-                created_at = created_at.isoformat()
+            created_at_val = row[3]
+            if isinstance(created_at_val, datetime):
+                created_at_val = created_at_val.isoformat()
+            
             try:
                 parsed = json.loads(row[0])
             except Exception:
                 parsed = {}
+                
             synth_raw = row[2]
             try:
                 synth_cols = json.loads(synth_raw) if synth_raw else None
             except Exception:
                 synth_cols = None
-            mcq = {**parsed, "quality_score": row[1], "created_at": created_at}
+                
+            mcq = {**parsed, "quality_score": row[1], "created_at": created_at_val}
             if synth_cols is not None:
                 mcq["synth_columns"] = synth_cols
             out.append(mcq)

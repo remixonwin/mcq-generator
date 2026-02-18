@@ -15,7 +15,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from .routers import datasets_router, exports_router, health_router, jobs_router, metrics_router
+from .routers import (
+    audit_logs_router,
+    datasets_router,
+    exports_router,
+    health_router,
+    jobs_router,
+    metrics_router,
+)
 from .. import tasks
 from ..dataset_search import search_datasets
 from ..state_manager import StateManager
@@ -72,7 +79,10 @@ def create_app() -> FastAPI:
     cors_origins = [
         "http://localhost:43211",  # Frontend Dev
         "http://127.0.0.1:43211",
+        "http://localhost:37241",  # Current Flutter Web Dev Port
         "http://localhost:8000",   # Backend itself
+        "http://localhost:43229",  # Flutter Web Dev Port (New)
+        "http://127.0.0.1:43229",
     ]
     
     app.add_middleware(
@@ -89,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets_router, prefix="/api/v1", tags=["Datasets"])
     app.include_router(jobs_router, prefix="/api/v1", tags=["Jobs"])
     app.include_router(exports_router, prefix="/api/v1", tags=["Exports"])
+    app.include_router(audit_logs_router, prefix="/api/v1", tags=["Audit Logs"])
 
     # Exception handlers
     @app.exception_handler(ValueError)

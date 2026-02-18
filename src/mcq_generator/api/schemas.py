@@ -259,3 +259,52 @@ class MCQListResponse(BaseModel):
     job_id: str = Field(..., description="Job identifier")
     total: int = Field(..., description="Total MCQs")
     mcqs: list[MCQItem] = Field(..., description="List of MCQs")
+
+
+# ============================================================================
+# Audit Log Schemas
+# ============================================================================
+
+
+class AuditAction(str, Enum):
+    """Audit action enumeration."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    VIEW = "view"
+    EXPORT = "export"
+    QUIZ_START = "quizStart"
+    QUIZ_SUBMIT = "quizSubmit"
+    ROLLBACK = "rollback"
+
+
+class AuditResource(str, Enum):
+    """Audit resource enumeration."""
+
+    RUN = "run"
+    MCQ = "mcq"
+    QUIZ_ATTEMPT = "quizAttempt"
+    EXPORT = "export"
+    BATCH = "batch"
+
+
+class AuditLog(BaseModel):
+    """Audit log entry schema."""
+
+    audit_id: str = Field(..., alias="auditId")
+    user_id: str = Field(..., alias="userId")
+    action: AuditAction
+    resource_type: AuditResource = Field(..., alias="resourceType")
+    resource_id: str = Field(..., alias="resourceId")
+    timestamp: datetime
+    metadata: dict[str, Any] | None = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class AuditLogsResponse(PaginatedResponse):
+    """Audit logs list response."""
+
+    items: list[AuditLog]

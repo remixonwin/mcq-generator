@@ -173,7 +173,8 @@ class ExportService:
             # Ensure question_hash exists
             q_hash = mcq.get("question_hash")
             if not q_hash:
-                q_hash = metadata_raw.get("question_hash") or metadata_raw.get("document_hash")
+                # Prioritize mcq_id or question_hash from metadata
+                q_hash = mcq.get("mcq_id") or metadata_raw.get("question_hash") or metadata_raw.get("document_hash")
             if not q_hash:
                 q_hash = hashlib.sha256(mcq.get("question", "").encode()).hexdigest()
 
