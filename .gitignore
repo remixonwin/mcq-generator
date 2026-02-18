@@ -75,3 +75,6 @@ uv.lock
 
 uvicorn.log
 mcq_generator.log
+uvicorn.log
+src/uvicorn_llm.log
+mcq_generator.db

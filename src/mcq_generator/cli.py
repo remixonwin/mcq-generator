@@ -444,6 +444,16 @@ def _run_interactive_generation():
             console.print("[yellow]Results will be saved after each MCQ generation.[/yellow]")
             target_questions = 999999999
             continuous = True
+        # Ask user for optional text column when dataset is tabular
+        try:
+            text_column = Prompt.ask(
+                "[cyan]Text column to use (leave blank to auto-detect)[/cyan]",
+                default="text",
+            )
+            if text_column == "":
+                text_column = None
+        except Exception:
+            text_column = "text"
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Cancelled by user.[/yellow]")
         return
@@ -459,6 +469,7 @@ def _run_interactive_generation():
             dataset_name=dataset_name,
             target_questions=target_questions,
             output_path=output_path,
+            text_column=text_column,
         )
     )
 
@@ -657,6 +668,7 @@ async def _run_generation_loop(
     checkpoint_interval: int = 10,
     provider_url: str | None = None,
     cache_dir: str = ".mcq_cache",
+    text_column: str | None = "text",
 ):
     """Core generation loop used by all commands."""
     global generation_running
@@ -723,6 +735,7 @@ async def _run_generation_loop(
                 dataset_name=dataset_name,
                 target_questions=target_questions,
                 resume_job_id=resume_job_id,
+                text_column=text_column,
             ):
                 if not generation_running:
                     console.print("\n[yellow]Generation stopped.[/yellow]")
@@ -917,6 +930,7 @@ def generate(
             checkpoint_interval=checkpoint,
             provider_url=provider_url,
             cache_dir=cache_dir,
+            text_column=None,
         )
     )
 
@@ -1049,6 +1063,7 @@ def resume(
             target_questions=target,
             output_path=output_path,
             resume_job_id=job_id,
+            text_column=progress_info.get("config", {}).get("text_column"),
         )
     )
 

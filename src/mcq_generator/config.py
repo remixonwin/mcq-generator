@@ -105,6 +105,32 @@ class Config:
         return str(v).lower() in ("1", "true", "yes", "on")
 
     @property
+    def TEXT_COLUMN_WHITELIST(self) -> list[str]:
+        """Preferred text-like column name terms (comma-separated in env)."""
+        v = self.get("TEXT_COLUMN_WHITELIST")
+        if not v:
+            return [
+                "title",
+                "headline",
+                "summary",
+                "abstract",
+                "description",
+                "prompt",
+                "question",
+                "text",
+                "content",
+                "body",
+            ]
+        return [t.strip() for t in v.split(",") if t.strip()]
+
+    @property
+    def MAX_SYNTH_COLUMNS(self) -> int:
+        try:
+            return int(self.get("MAX_SYNTH_COLUMNS") or 6)
+        except Exception:
+            return 6
+
+    @property
     def CONTENT_FAILURE_LIMIT(self) -> int:
         try:
             return int(self.get("CONTENT_FAILURE_LIMIT") or 200)

@@ -4,8 +4,9 @@ State Manager using DuckDB for high-performance pause/resume functionality.
 
 import json
 import logging
+import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -19,6 +20,11 @@ class StateManager:
     """
 
     def __init__(self, db_path: str = "mcq_state.duckdb"):
+        # Allow overriding DB path via environment variable for tests and deployments
+        env_path = os.getenv("MCQ_DB_PATH")
+        if env_path and (db_path is None or db_path == "mcq_state.duckdb"):
+            db_path = env_path
+
         self.db_path = Path(db_path)
         self.conn = duckdb.connect(str(self.db_path))
         self._initialize_schema()
@@ -50,9 +56,20 @@ class StateManager:
                 document_indices INTEGER[],
                 cache_stats JSON,
                 metrics JSON,
+                synth_columns JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Ensure older DBs get the new synth_columns column without breaking
+        # existing installs. Try to add the column if it doesn't exist; ignore
+        # errors if it already exists or the DB doesn't allow ALTER.
+        try:
+            self.conn.execute("ALTER TABLE checkpoints ADD COLUMN IF NOT EXISTS synth_columns JSON")
+        except Exception:
+            # Non-fatal: some DuckDB versions or states may not support IF NOT EXISTS
+            # or may raise if column already present. Ignore to be backward compatible.
+            pass
 
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS mcq_results (
@@ -62,6 +79,7 @@ class StateManager:
                 document_hash VARCHAR NOT NULL,
                 mcq_json JSON NOT NULL,
                 quality_score FLOAT,
+                synth_columns JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -69,6 +87,17 @@ class StateManager:
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_checkpoints_job ON checkpoints(job_id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_mcq_job ON mcq_results(job_id)")
+        # Ensure older DBs get the new synth_columns column on mcq_results (best-effort)
+        try:
+            # Some DuckDB versions support ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+            self.conn.execute("ALTER TABLE mcq_results ADD COLUMN IF NOT EXISTS synth_columns JSON")
+        except Exception:
+            try:
+                # Older syntax without IF NOT EXISTS may raise; try a safer no-op
+                self.conn.execute("ALTER TABLE mcq_results ADD COLUMN synth_columns JSON")
+            except Exception:
+                # Ignore failures - schema upgrade not critical at runtime
+                pass
 
     def create_job(
         self,
@@ -89,6 +118,32 @@ class StateManager:
         logger.info(f"Created job {job_id} for dataset {dataset_name}")
         return job_id
 
+    def update_job_config(self, job_id: str, new_config: dict, merge: bool = True) -> None:
+        """Update or set the JSON config blob for a job.
+
+        If merge is True, the existing config will be merged with new_config
+        (shallow dict update). Otherwise the config will be replaced.
+        """
+        # Fetch existing config
+        try:
+            row = self.conn.execute("SELECT config FROM jobs WHERE job_id = ?", [job_id]).fetchone()
+            raw = row[0] if row and row[0] is not None else None
+            if merge:
+                try:
+                    existing = json.loads(raw) if raw else {}
+                except Exception:
+                    existing = {}
+                merged = {**existing, **(new_config or {})}
+            else:
+                merged = new_config or {}
+
+            self.conn.execute(
+                "UPDATE jobs SET config = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                [json.dumps(merged, default=str), job_id],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update job config for {job_id}: {e}")
+
     def save_checkpoint(
         self,
         job_id: str,
@@ -96,9 +151,10 @@ class StateManager:
         document_indices: list,
         cache_stats: dict,
         metrics: dict,
+        synth_columns: list | None = None,
     ) -> None:
         """Save a checkpoint for pause/resume."""
-        checkpoint_id = f"{job_id}_cp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        checkpoint_id = f"{job_id}_cp_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
         # Wrap DB writes in a small retry loop to handle transient write-write
         # conflicts in DuckDB when multiple processes may access the DB.
         max_attempts = 5
@@ -107,8 +163,8 @@ class StateManager:
             try:
                 self.conn.execute(
                     """
-                    INSERT INTO checkpoints (checkpoint_id, job_id, last_processed_index, document_indices, cache_stats, metrics)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO checkpoints (checkpoint_id, job_id, last_processed_index, document_indices, cache_stats, metrics, synth_columns)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         checkpoint_id,
@@ -117,6 +173,9 @@ class StateManager:
                         document_indices,
                         json.dumps(cache_stats, default=str),
                         json.dumps(metrics, default=str),
+                        json.dumps(synth_columns, default=str)
+                        if synth_columns is not None
+                        else None,
                     ],
                 )
 
@@ -143,7 +202,7 @@ class StateManager:
         """Get the most recent checkpoint for resuming."""
         result = self.conn.execute(
             """
-            SELECT checkpoint_id, last_processed_index, document_indices, cache_stats, metrics, created_at
+            SELECT checkpoint_id, last_processed_index, document_indices, cache_stats, metrics, synth_columns, created_at
             FROM checkpoints
             WHERE job_id = ?
             ORDER BY created_at DESC
@@ -155,14 +214,19 @@ class StateManager:
         if not result:
             return None
 
-        # result[3] and result[4] may be NULL in the DB; guard before json.loads
+        # result[3].. may be NULL in the DB; guard before json.loads
         raw_cache = result[3]
         raw_metrics = result[4]
+        raw_synth = result[5] if len(result) > 5 else None
 
         cache_stats = json.loads(raw_cache) if raw_cache else {}
         metrics = json.loads(raw_metrics) if raw_metrics else {}
+        try:
+            synth_columns = json.loads(raw_synth) if raw_synth else None
+        except Exception:
+            synth_columns = None
 
-        created_at = result[5]
+        created_at = result[6] if len(result) > 6 else None
         if isinstance(created_at, datetime):
             created_at = created_at.isoformat()
 
@@ -172,6 +236,7 @@ class StateManager:
             "document_indices": result[2],
             "cache_stats": cache_stats,
             "metrics": metrics,
+            "synth_columns": synth_columns,
             "created_at": created_at,
         }
 
@@ -182,6 +247,7 @@ class StateManager:
         document_hash: str,
         mcq_data: dict,
         quality_score: float,
+        synth_columns: list | None = None,
     ) -> None:
         """Save a generated MCQ."""
         mcq_id = f"{job_id}_mcq_{document_index}"
@@ -209,23 +275,30 @@ class StateManager:
                     "SELECT COUNT(1) FROM mcq_results WHERE mcq_id = ?",
                     [mcq_id],
                 ).fetchone()
-                exists = row[0] if row else 0
+                exists = int(row[0]) if row and len(row) > 0 else 0
 
                 if exists and exists > 0:
                     # Update existing record
                     self.conn.execute(
                         """
                         UPDATE mcq_results
-                        SET mcq_json = ?, quality_score = ?, created_at = CURRENT_TIMESTAMP
+                        SET mcq_json = ?, quality_score = ?, synth_columns = ?, created_at = CURRENT_TIMESTAMP
                         WHERE mcq_id = ?
                         """,
-                        [json.dumps(mcq_data, default=str), quality_score, mcq_id],
+                        [
+                            json.dumps(mcq_data, default=str),
+                            quality_score,
+                            json.dumps(synth_columns, default=str)
+                            if synth_columns is not None
+                            else None,
+                            mcq_id,
+                        ],
                     )
                 else:
                     self.conn.execute(
                         """
-                        INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score, synth_columns)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         [
                             mcq_id,
@@ -234,6 +307,9 @@ class StateManager:
                             document_hash,
                             json.dumps(mcq_data, default=str),
                             quality_score,
+                            json.dumps(synth_columns, default=str)
+                            if synth_columns is not None
+                            else None,
                         ],
                     )
                     self.conn.execute(
@@ -347,7 +423,7 @@ class StateManager:
                 # Try to insert directly (idempotent check first)
                 try:
                     self.conn.execute(
-                        "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score, synth_columns) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         [
                             mcq_id,
                             job_id,
@@ -355,6 +431,9 @@ class StateManager:
                             document_hash,
                             json.dumps(mcq_data, default=str),
                             quality_score,
+                            json.dumps(synth_columns, default=str)
+                            if synth_columns is not None
+                            else None,
                         ],
                     )
                     # Ensure generated_count reflects reality
@@ -374,8 +453,8 @@ class StateManager:
         result = self.conn.execute(
             """
             SELECT job_id, dataset_name, total_documents, target_questions,
-                   processed_count, generated_count, status,
-                   created_at, updated_at, completed_at
+                    processed_count, generated_count, status,
+                    created_at, updated_at, completed_at, config
             FROM jobs WHERE job_id = ?
             """,
             [job_id],
@@ -394,6 +473,25 @@ class StateManager:
         if isinstance(completed_at, datetime):
             completed_at = completed_at.isoformat()
 
+        # config is stored as JSON text in the jobs table; parse if present
+        raw_config = result[10]
+        try:
+            cfg = json.loads(raw_config) if raw_config else {}
+        except Exception:
+            cfg = {}
+
+        # Expose text_column and synth_columns at top-level for convenience.
+        text_column = cfg.get("text_column")
+        synth_columns = cfg.get("synth_columns")
+        # If synth_columns not present in job config, look at latest checkpoint
+        if synth_columns is None:
+            try:
+                cp = self.get_latest_checkpoint(job_id)
+                if cp:
+                    synth_columns = cp.get("synth_columns")
+            except Exception:
+                synth_columns = None
+
         return {
             "job_id": result[0],
             "dataset_name": result[1],
@@ -406,6 +504,9 @@ class StateManager:
             "updated_at": updated_at,
             "completed_at": completed_at,
             "progress_pct": (result[5] / result[3] * 100) if result[3] > 0 else 0,
+            "config": cfg,
+            "text_column": text_column,
+            "synth_columns": synth_columns,
         }
 
     def count_mcq_rows(self, job_id: str) -> int:
@@ -509,7 +610,7 @@ class StateManager:
 
                 # Insert directly
                 self.conn.execute(
-                    "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO mcq_results (mcq_id, job_id, document_index, document_hash, mcq_json, quality_score, synth_columns) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [
                         mcq_id,
                         job_id,
@@ -517,6 +618,7 @@ class StateManager:
                         md.get("document_hash", ""),
                         json.dumps(entry, default=str),
                         float(entry.get("quality_score", 0.0)),
+                        None,
                     ],
                 )
                 restored += 1
@@ -606,7 +708,7 @@ class StateManager:
     def get_mcqs(self, job_id: str) -> list[dict]:
         """Get all MCQs for a job."""
         results = self.conn.execute(
-            "SELECT mcq_json, quality_score, created_at FROM mcq_results WHERE job_id = ? ORDER BY document_index",
+            "SELECT mcq_json, quality_score, synth_columns, created_at FROM mcq_results WHERE job_id = ? ORDER BY document_index",
             [job_id],
         ).fetchall()
 
@@ -615,7 +717,18 @@ class StateManager:
             created_at = row[2]
             if isinstance(created_at, datetime):
                 created_at = created_at.isoformat()
-            mcq = {**json.loads(row[0]), "quality_score": row[1], "created_at": created_at}
+            try:
+                parsed = json.loads(row[0])
+            except Exception:
+                parsed = {}
+            synth_raw = row[2]
+            try:
+                synth_cols = json.loads(synth_raw) if synth_raw else None
+            except Exception:
+                synth_cols = None
+            mcq = {**parsed, "quality_score": row[1], "created_at": created_at}
+            if synth_cols is not None:
+                mcq["synth_columns"] = synth_cols
             out.append(mcq)
         return out
 

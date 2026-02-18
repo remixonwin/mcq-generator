@@ -8,7 +8,7 @@ separating it from the HTTP layer (routers) and data layer (StateManager).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from ...api.schemas import (
@@ -36,7 +36,9 @@ class JobService:
         """
         import uuid
 
-        job_id = f"api_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        job_id = (
+            f"api_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        )
 
         self.state.create_job(
             job_id=job_id,

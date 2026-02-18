@@ -24,6 +24,7 @@ def enqueue_generate(
     checkpoint_interval: int,
     cache_dir: str,
     provider_url: str | None,
+    text_column: str | None = "text",
 ):
     """Enqueue generation job.
 
@@ -45,6 +46,7 @@ def enqueue_generate(
                     checkpoint_interval,
                     cache_dir,
                     provider_url,
+                    text_column,
                 ],
             )
             return
@@ -69,6 +71,7 @@ def enqueue_generate(
                     checkpoint_interval=checkpoint_interval,
                     cache_dir=cache_dir,
                     provider_url=provider_url,
+                    text_column=text_column,
                 )
             )
         except Exception as e:
@@ -88,6 +91,7 @@ def generate_task(
     checkpoint_interval: int,
     cache_dir: str,
     provider_url: str | None,
+    text_column: str | None = "text",
 ):
     """Task entrypoint used by Celery workers."""
     from time import perf_counter
@@ -106,6 +110,7 @@ def generate_task(
                 checkpoint_interval=checkpoint_interval,
                 cache_dir=cache_dir,
                 provider_url=provider_url,
+                text_column=text_column,
             )
         )
         duration = perf_counter() - start

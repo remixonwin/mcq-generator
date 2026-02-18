@@ -27,6 +27,7 @@ async def run_generation_job(
     checkpoint_interval: int,
     cache_dir: str,
     provider_url: str | None,
+    text_column: str | None = "text",
 ) -> None:
     """
     Run a generation job in the background.
@@ -67,6 +68,7 @@ async def run_generation_job(
             dataset_name=dataset,
             target_questions=target,
             resume_job_id=job_id,
+            text_column=text_column,
         ):
             # Yield control to allow other tasks
             await asyncio.sleep(0)

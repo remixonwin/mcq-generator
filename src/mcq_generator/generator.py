@@ -8,7 +8,7 @@ import logging
 import random
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from datasets import load_dataset
 
@@ -106,7 +106,7 @@ class MCQGenerator:
         dataset_name: str,
         target_questions: int,
         dataset_split: str = "train",
-        text_column: str = "text",
+        text_column: str | None = "text",
         sample_randomly: bool = True,
         resume_job_id: str | None = None,
     ):
@@ -118,13 +118,34 @@ class MCQGenerator:
             checkpoint = self.state.get_latest_checkpoint(job_id)
             start_index = checkpoint["last_processed_index"] + 1 if checkpoint else 0
             logger.info(f"Resuming job {job_id} from index {start_index}")
+            # Restore persisted text_column / synth_columns from job config or checkpoint
+            try:
+                prog = self.state.get_job_progress(job_id)
+                cfg = prog.get("config", {}) if isinstance(prog, dict) else {}
+                # prefer explicit config in job row, fallback to checkpoint synth_columns
+                text_column = cfg.get("text_column", text_column)
+                synth_cols = cfg.get("synth_columns")
+                if not synth_cols and checkpoint:
+                    synth_cols = checkpoint.get("synth_columns")
+                if synth_cols:
+                    # ensure generator has the same synthesized columns for deterministic resume
+                    self._synth_columns = synth_cols
+            except Exception:
+                # Best-effort: if state read fails, continue with provided args
+                pass
         else:
-            job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            # Use timezone-aware timestamp to avoid naive datetime deprecation
+            job_id = (
+                f"job_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            )
+            # Persist initial job config including the user-requested text_column
+            initial_config = {"text_column": text_column}
             self.state.create_job(
                 job_id=job_id,
                 dataset_name=dataset_name,
                 target_questions=target_questions,
                 dataset_split=dataset_split,
+                config=initial_config,
             )
             start_index = 0
             logger.info(f"Created new job {job_id}")
@@ -159,24 +180,123 @@ class MCQGenerator:
                     if col in dataset.column_names:
                         text_column = col
                         logger.info(f"Auto-detected text column: {text_column}")
+                        try:
+                            self.state.update_job_config(job_id, {"text_column": text_column})
+                        except Exception:
+                            logger.debug("Failed to persist detected text_column in job config")
                         break
                 else:
                     # Check if any column contains long text values
                     for col in dataset.column_names:
-                        sample = dataset[0].get(col)
+                        try:
+                            sample = dataset[0].get(col)
+                        except Exception:
+                            sample = None
                         if isinstance(sample, str) and len(sample) > 100:
                             text_column = col
                             logger.info(
                                 f"Auto-detected text column from long string: {text_column}"
                             )
+                            try:
+                                self.state.update_job_config(job_id, {"text_column": text_column})
+                            except Exception:
+                                logger.debug("Failed to persist detected text_column in job config")
                             break
                     else:
-                        logger.error(
-                            f"No suitable text column found in dataset: {dataset.column_names}"
-                        )
-                        raise ValueError(
-                            f"Cannot find suitable text column in dataset. Available: {dataset.column_names}"
-                        )
+                        # No obvious text column found. Fall back to using the
+                        # first available string-like column, or synthesize a
+                        # document by concatenating columns per row. This makes
+                        # the generator more tolerant of tabular datasets that
+                        # don't have an explicit text field (e.g. CSVs with
+                        # numeric features).
+                        fallback_col = None
+                        for col in dataset.column_names:
+                            try:
+                                sample = dataset[0].get(col)
+                            except Exception:
+                                sample = None
+                            if isinstance(sample, str):
+                                fallback_col = col
+                                break
+
+                        if fallback_col:
+                            text_column = fallback_col
+                            logger.info(f"Using short string column as text: {text_column}")
+                            try:
+                                self.state.update_job_config(job_id, {"text_column": text_column})
+                            except Exception:
+                                logger.debug("Failed to persist fallback text_column in job config")
+                        else:
+                            # No string columns found. Instead of blindly
+                            # concatenating every column (which can dilute useful
+                            # context), pick a small set of high-value columns
+                            # heuristically. Preference is given to common text
+                            # column names and any column with a longer sample
+                            # string. This improves quality when synthesizing
+                            # documents from purely tabular datasets.
+                            logger.info(
+                                "No obvious text column found; selecting heuristic columns for synthesis"
+                            )
+                            # Column name priorities (higher = more important)
+                            # Allow whitelist tuning via config
+                            whitelist = config.TEXT_COLUMN_WHITELIST
+
+                            col_scores = []
+                            for col in dataset.column_names:
+                                try:
+                                    sample = dataset[0].get(col)
+                                except Exception:
+                                    sample = None
+
+                                # Basic heuristics: length of string sample and
+                                # whether the column name matches whitelist
+                                name = col.lower()
+                                wl_score = 0
+                                for i, term in enumerate(whitelist):
+                                    if term in name:
+                                        # higher priority for earlier whitelist items
+                                        wl_score = max(wl_score, len(whitelist) - i)
+                                sample_len = 0
+                                is_numeric = False
+                                if isinstance(sample, str):
+                                    sample_len = len(sample)
+                                else:
+                                    # Treat numeric-like samples as less useful
+                                    if sample is None:
+                                        sample_len = 0
+                                    else:
+                                        try:
+                                            float(sample)
+                                            is_numeric = True
+                                        except Exception:
+                                            sample_len = len(str(sample))
+
+                                # Score combines whitelist and sample length,
+                                # penalize numeric columns slightly
+                                score = wl_score * 1000 + sample_len - (100 if is_numeric else 0)
+                                col_scores.append((col, score, is_numeric, sample_len))
+
+                            # Sort by score desc and pick top N columns
+                            col_scores.sort(key=lambda x: x[1], reverse=True)
+                            max_cols = config.MAX_SYNTH_COLUMNS
+                            synth_columns = [c for c, *_ in col_scores[:max_cols] if c]
+                            if not synth_columns:
+                                # Fallback to all columns
+                                synth_columns = list(dataset.column_names)
+
+                            logger.info(f"Synthesizing documents using columns: {synth_columns}")
+                            # Use None to signal synthesis mode; synth_columns used later
+                            text_column = None
+                            # store synth_columns on the generator instance for later use
+                            # when building synthesized documents per-row
+                            self._synth_columns = synth_columns
+                            try:
+                                # persist synth_columns and signal synthesis by storing text_column=None
+                                self.state.update_job_config(
+                                    job_id, {"synth_columns": synth_columns, "text_column": None}
+                                )
+                            except Exception:
+                                logger.debug("Failed to persist synth_columns in job config")
 
             # Persist dataset size so progress percentages are accurate
             try:
@@ -283,13 +403,39 @@ class MCQGenerator:
 
                     try:
                         doc = dataset[idx]
-                        raw_text = doc.get(text_column, "")
+                        if text_column is not None:
+                            raw_text = doc.get(text_column, "")
 
-                        # Handle list of strings (e.g., paragraphs) by joining
-                        if isinstance(raw_text, list):
-                            text = " ".join(str(item) for item in raw_text if item)
+                            # Handle list of strings (e.g., paragraphs) by joining
+                            if isinstance(raw_text, list):
+                                text = " ".join(str(item) for item in raw_text if item)
+                            else:
+                                text = str(raw_text) if raw_text else ""
                         else:
-                            text = str(raw_text) if raw_text else ""
+                            # Synthesize a textual representation of the row by
+                            # concatenating "column: value." pairs. Skip empty
+                            # or null values to keep text concise.
+                            parts = []
+                            # Prefer previously computed synth_columns if present
+                            cols = getattr(self, "_synth_columns", None) or list(
+                                dataset.column_names
+                            )
+                            for col in cols:
+                                try:
+                                    val = doc.get(col)
+                                except Exception:
+                                    val = None
+                                if val is None:
+                                    continue
+                                if isinstance(val, list):
+                                    val_str = " ".join(str(v) for v in val if v)
+                                else:
+                                    val_str = str(val)
+                                val_str = val_str.strip()
+                                if not val_str or val_str.lower() in ("nan", "none"):
+                                    continue
+                                parts.append(f"{col}: {val_str}")
+                            text = ". ".join(parts)
 
                         if not text or not text.strip():
                             break  # Move to next document
@@ -311,6 +457,7 @@ class MCQGenerator:
                                     last_index=idx,
                                     processed_indices=processed_indices,
                                     generated_count=generated_count,
+                                    synth_columns=getattr(self, "_synth_columns", None),
                                 )
                         else:
                             # Content parse failure or generation returned None.
@@ -354,6 +501,7 @@ class MCQGenerator:
                     last_index=last_idx,
                     processed_indices=processed_indices,
                     generated_count=generated_count,
+                    synth_columns=getattr(self, "_synth_columns", None),
                 )
             except Exception as cp_e:
                 logger.warning(f"Failed to save checkpoint on interrupt: {cp_e}")
@@ -377,6 +525,7 @@ class MCQGenerator:
                     last_index=last_idx,
                     processed_indices=processed_indices,
                     generated_count=generated_count,
+                    synth_columns=getattr(self, "_synth_columns", None),
                 )
             except Exception as cp_e:
                 logger.warning(f"Failed to save final checkpoint: {cp_e}")
@@ -409,6 +558,7 @@ class MCQGenerator:
                 document_hash=cached_mcq["document_hash"],
                 mcq_data=cached_mcq["mcq"],
                 quality_score=cached_mcq["quality_score"],
+                synth_columns=getattr(self, "_synth_columns", None),
             )
             return mcq
 
@@ -439,6 +589,7 @@ class MCQGenerator:
             document_hash=hashlib.sha256(text.encode()).hexdigest(),
             mcq_data=mcq.to_dict(),
             quality_score=quality_score,
+            synth_columns=getattr(self, "_synth_columns", None),
         )
 
         return mcq
@@ -705,7 +856,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
                 specific_events=[
                     e.strip() for e in str(data.get("EVENTS", "")).split(",") if e.strip()
                 ],
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 difficulty=str(data.get("DIFFICULTY", "Medium")),
                 topic_category=str(data.get("TOPIC", "General")),
                 question_type=str(data.get("QUESTION_TYPE", "factual")),
@@ -738,7 +889,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
             specific_places=metadata_dict.get("specific_places", []),
             specific_dates=metadata_dict.get("specific_dates", []),
             specific_events=metadata_dict.get("specific_events", []),
-            timestamp=metadata_dict.get("timestamp", datetime.now().isoformat()),
+            timestamp=metadata_dict.get("timestamp", datetime.now(timezone.utc).isoformat()),
             difficulty=str(metadata_dict.get("difficulty", "Medium")),
             topic_category=str(metadata_dict.get("topic_category", "General")),
             question_type=str(metadata_dict.get("question_type", "factual")),
@@ -756,7 +907,12 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
         )
 
     async def _save_checkpoint(
-        self, job_id: str, last_index: int, processed_indices: list, generated_count: int
+        self,
+        job_id: str,
+        last_index: int,
+        processed_indices: list,
+        generated_count: int,
+        synth_columns: list | None = None,
     ) -> None:
         """Save checkpoint for pause/resume."""
         cache_stats = self.cache.get_stats()
@@ -768,6 +924,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
             document_indices=processed_indices,
             cache_stats=cache_stats,
             metrics={"generated_count": generated_count, "provider_stats": provider_stats},
+            synth_columns=synth_columns,
         )
 
         logger.info(f"Saved checkpoint: {generated_count} MCQs generated")

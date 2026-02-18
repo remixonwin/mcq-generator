@@ -46,6 +46,7 @@ def list_jobs(
     status: StatusEnum | None = Query(None, description="Filter by status"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(10, ge=1, le=100, description="Page size"),
+    order_by: str | None = Query(None, description="Sort order"),
     sm: StateManager = Depends(get_state_manager),
     api_key: str | None = Depends(get_api_key),
 ) -> JobListResponse:
@@ -102,6 +103,7 @@ def create_job(
         checkpoint_interval=request.checkpoint,
         cache_dir=request.cache_dir,
         provider_url=request.provider_url,
+        text_column=request.text_column,
     )
 
     logger.info(f"Created and enqueued job {job_id}")

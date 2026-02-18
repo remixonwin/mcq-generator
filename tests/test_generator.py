@@ -211,7 +211,110 @@ EXPLANATION: 2+2=4."""
                     mcq = generator._dict_to_mcq(sample_mcq_dict)
 
                     assert isinstance(mcq, MCQ)
-                    assert mcq.question == sample_mcq_dict["question"]
+        assert mcq.question == sample_mcq_dict["question"]
+
+
+@pytest.mark.asyncio
+async def test_generate_from_numeric_only_dataset_synthesizes_text(temp_dir):
+    """Ensure numeric-only datasets do not raise and synth_columns are chosen."""
+    from mcq_generator import generator as genmod
+    import hashlib
+
+    class FakeDataset:
+        def __init__(self, rows, column_names):
+            self._rows = rows
+            self.column_names = column_names
+
+        def __len__(self):
+            return len(self._rows)
+
+        def __getitem__(self, idx):
+            return self._rows[idx]
+
+    rows = [
+        {"feat1": 1.23, "feat2": 4.56, "id": 1},
+        {"feat1": 7.89, "feat2": 0.12, "id": 2},
+    ]
+
+    fake_ds = FakeDataset(rows, ["feat1", "feat2", "id"])
+
+    with patch("mcq_generator.generator.load_dataset") as mock_load_dataset:
+        with patch("mcq_generator.generator.ProviderClient") as MockProvider:
+            with patch("mcq_generator.generator.CacheManager") as MockCache:
+                with patch("mcq_generator.generator.StateManager") as MockState:
+                    mock_load_dataset.return_value = fake_ds
+
+                    # Provider returns a valid MCQ response regardless of input
+                    provider_inst = MagicMock()
+                    provider_inst.generate = AsyncMock(
+                        return_value={
+                            "choices": [
+                                {
+                                    "message": {
+                                        "content": (
+                                            "QUESTION: What is 1+1?\nA) 1\nB) 2\nC) 3\nCORRECT: B\n"
+                                            "EXPLANATION: 1+1=2.\nNAMES: \nPLACES: \nDATES: \nEVENTS: \nDIFFICULTY: Easy\nTOPIC: Math"
+                                        )
+                                    }
+                                }
+                            ]
+                        }
+                    )
+
+                    MockProvider.return_value = provider_inst
+
+                    cache_inst = MagicMock()
+                    cache_inst.get_best_examples.return_value = []
+                    cache_inst.get_mcq.return_value = None
+                    MockCache.return_value = cache_inst
+
+                    state_inst = MagicMock()
+                    state_inst.get_latest_checkpoint.return_value = None
+                    state_inst.update_total_documents.return_value = None
+                    state_inst.get_job_progress.return_value = {"status": "running"}
+                    # track save_mcq calls
+                    state_inst.save_mcq = MagicMock()
+                    MockState.return_value = state_inst
+
+                    gen = genmod.MCQGenerator(
+                        cache_dir=str(temp_dir / "cache"), db_path=str(temp_dir / "test.db")
+                    )
+
+                    # Make filter permissive so synthesized short texts are processed
+                    gen.filter = MagicMock()
+                    gen.filter.should_process.return_value = True
+                    gen.duplicate_detector = MagicMock()
+                    gen.duplicate_detector.is_duplicate.return_value = False
+
+                    # Run generator and get first produced MCQ (should not raise)
+                    agen = gen.generate_from_dataset(
+                        dataset_name="fake_dataset",
+                        target_questions=1,
+                        dataset_split="train",
+                        text_column="text",
+                    )
+
+                    produced = None
+                    async for item in agen:
+                        produced = item
+                        break
+
+                    assert produced is not None
+                    # synth_columns should have been selected and stored on the generator
+                    assert hasattr(gen, "_synth_columns")
+                    assert len(gen._synth_columns) > 0
+
+                    # Ensure save_mcq was called with mcq data and document_hash
+                    assert state_inst.save_mcq.call_count > 0
+                    called = state_inst.save_mcq.call_args_list[0]
+                    assert "document_hash" in called.kwargs
+                    assert "mcq_data" in called.kwargs
+                    # mcq_data should contain metadata.document_hash equal to saved document_hash
+                    dh = called.kwargs.get("document_hash")
+                    md_hash = (
+                        called.kwargs.get("mcq_data", {}).get("metadata", {}).get("document_hash")
+                    )
+                    assert dh == md_hash
 
 
 class TestMCQMetadata:

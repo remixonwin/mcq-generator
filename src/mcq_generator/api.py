@@ -16,10 +16,10 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Response
-from fastapi.security.api_key import APIKey, APIKeyHeader
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 
 from . import tasks
@@ -36,6 +36,7 @@ from .metrics import (
     jobs_enqueued,
 )
 from .state_manager import StateManager
+from datetime import timezone
 
 # API key security (optional). If API_KEY env var is set, requests must include
 # header `X-API-Key: <key>`. If not set, endpoints are open.
@@ -59,9 +60,7 @@ app = FastAPI(title="MCQ Generator API", version="2.0.0")
 # Keep track of background tasks so the server can report active tasks.
 _background_tasks: dict[str, asyncio.Task] = {}
 
-# Lightweight in-memory job fallback when DB is unavailable (e.g. during
-# tests or transient DuckDB file lock). Keys are job_id -> job dict.
-_inmem_jobs: dict[str, dict] = {}
+from .inmem import _inmem_jobs
 
 
 class SearchResponseItem(BaseModel):
@@ -77,6 +76,7 @@ class GenerateRequest(BaseModel):
     cache_dir: str | None = ".mcq_cache"
     provider_url: str | None = None
     output: str | None = "mcqs.json"
+    text_column: str | None = "text"
 
 
 class GenerateResponse(BaseModel):
@@ -92,6 +92,7 @@ async def _start_background_generation(
     checkpoint_interval: int,
     cache_dir: str,
     provider_url: str | None,
+    text_column: str | None = "text",
 ):
     """Run generation loop; intended to be executed in an event loop.
 
@@ -139,28 +140,36 @@ def api_generate(req: GenerateRequest):
     The endpoint returns immediately with the created job id. Clients can
     poll `/jobs/{job_id}` to observe progress.
     """
-    job_id = f"api_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    # Try to persist job to DB, but fall back to in-memory storage on DB lock
+    job_id = f"api_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    # Create an in-memory job record immediately so listing endpoints can
+    # surface the job while DB writes happen asynchronously or when DuckDB
+    # is locked/unreadable. This ensures a responsive UX during enqueue.
+    _inmem_jobs[job_id] = {
+        "job_id": job_id,
+        "dataset_name": req.dataset,
+        "status": "running",
+        "target_questions": req.questions or 0,
+        "generated_count": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Try to persist job to DB; non-fatal if it fails (we keep the in-memory job)
     try:
         sm = StateManager()
         try:
             sm.create_job(
-                job_id=job_id, dataset_name=req.dataset, target_questions=req.questions or 0
+                job_id=job_id,
+                dataset_name=req.dataset,
+                target_questions=req.questions or 0,
+                config={"text_column": req.text_column},
             )
             sm.update_job_status(job_id, "running")
         finally:
             sm.close()
     except Exception:
-        # Fallback: keep minimal job info in memory so API responses are stable
-        _inmem_jobs[job_id] = {
-            "job_id": job_id,
-            "dataset_name": req.dataset,
-            "status": "running",
-            "target_questions": req.questions or 0,
-            "generated_count": 0,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
+        # Leave the in-memory record as the authoritative minimal entry
+        pass
 
     # Don't start heavy background generation inside test environments that
     # don't expect it — use FastAPI's BackgroundTasks to schedule the runner.
@@ -176,6 +185,7 @@ def api_generate(req: GenerateRequest):
         checkpoint_interval=int(req.checkpoint or 10),
         cache_dir=str(req.cache_dir or ".mcq_cache"),
         provider_url=req.provider_url,
+        text_column=req.text_column,
     )
     # Note: job duration/completion/failure are recorded by the worker when
     # the job actually runs. The API cannot know completion time here.
@@ -184,7 +194,7 @@ def api_generate(req: GenerateRequest):
 
 
 @app.post("/resume/{job_id}")
-def api_resume(job_id: str, api_key: APIKey = Depends(get_api_key)):
+def api_resume(job_id: str, api_key: str | None = Depends(get_api_key)):
     """Resume an existing job by id."""
     sm = StateManager()
     try:
@@ -193,7 +203,13 @@ def api_resume(job_id: str, api_key: APIKey = Depends(get_api_key)):
         except Exception as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-        # Enqueue resume
+        # Enqueue resume, preserve configured text_column if available
+        text_col = None
+        try:
+            text_col = progress.get("text_column") or progress.get("config", {}).get("text_column")
+        except Exception:
+            text_col = "text"
+
         tasks.enqueue_generate(
             job_id=job_id,
             dataset=progress["dataset_name"],
@@ -202,6 +218,7 @@ def api_resume(job_id: str, api_key: APIKey = Depends(get_api_key)):
             checkpoint_interval=10,
             cache_dir=".mcq_cache",
             provider_url=None,
+            text_column=text_col,
         )
 
         return {"job_id": job_id, "message": "Resume scheduled"}
@@ -210,7 +227,7 @@ def api_resume(job_id: str, api_key: APIKey = Depends(get_api_key)):
 
 
 @app.get("/jobs")
-def api_list_jobs(status: str | None = None, api_key: APIKey = Depends(get_api_key)):
+def api_list_jobs(status: str | None = None, api_key: str | None = Depends(get_api_key)):
     api_requests.labels(path="/jobs").inc()
     jobs = []
     # Try DB first; on failure, return in-memory jobs only
@@ -234,7 +251,7 @@ def api_list_jobs(status: str | None = None, api_key: APIKey = Depends(get_api_k
 
 
 @app.get("/jobs/{job_id}")
-def api_job_status(job_id: str, api_key: APIKey = Depends(get_api_key)):
+def api_job_status(job_id: str, api_key: str | None = Depends(get_api_key)):
     api_requests.labels(path="/jobs/{job_id}").inc()
     # Try DB first, fallback to in-memory
     try:
@@ -251,7 +268,7 @@ def api_job_status(job_id: str, api_key: APIKey = Depends(get_api_key)):
 
 
 @app.get("/stats")
-def api_stats(api_key: APIKey = Depends(get_api_key)):
+def api_stats(api_key: str | None = Depends(get_api_key)):
     api_requests.labels(path="/stats").inc()
     try:
         sm = StateManager()
@@ -280,7 +297,7 @@ def api_export(
     job_id: str,
     format: str = "json",
     output: str | None = None,
-    api_key: APIKey = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key),
 ):
     api_requests.labels(path="/export").inc()
     """Export MCQs for a job in the requested format. If `output` is
