@@ -196,8 +196,15 @@ class ExportService:
                 )
             )
 
+        # Fetch job details for metadata
+        try:
+            job_details = self.state.get_job_progress(job_id)
+        except Exception:
+            job_details = {}
+
         return {
             "job_id": job_id,
+            "job_details": job_details,
             "total": len(mcq_items),
             "mcqs": mcq_items,
         }

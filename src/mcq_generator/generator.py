@@ -149,6 +149,35 @@ class MCQGenerator:
             dataset = load_dataset(dataset_name, split=dataset_split, token=config.HF_TOKEN)
             logger.info(f"Loaded {len(dataset)} documents")
 
+            # Auto-detect text column if the specified one doesn't exist
+            if text_column not in dataset.column_names:
+                logger.warning(
+                    f"Text column '{text_column}' not found. Available: {dataset.column_names}"
+                )
+                # Try common text column names (including lists of paragraphs)
+                for col in ["paragraphs", "content", "text", "full_text", "raw_text", "body"]:
+                    if col in dataset.column_names:
+                        text_column = col
+                        logger.info(f"Auto-detected text column: {text_column}")
+                        break
+                else:
+                    # Check if any column contains long text values
+                    for col in dataset.column_names:
+                        sample = dataset[0].get(col)
+                        if isinstance(sample, str) and len(sample) > 100:
+                            text_column = col
+                            logger.info(
+                                f"Auto-detected text column from long string: {text_column}"
+                            )
+                            break
+                    else:
+                        logger.error(
+                            f"No suitable text column found in dataset: {dataset.column_names}"
+                        )
+                        raise ValueError(
+                            f"Cannot find suitable text column in dataset. Available: {dataset.column_names}"
+                        )
+
             # Persist dataset size so progress percentages are accurate
             try:
                 self.state.update_total_documents(job_id, len(dataset))
@@ -254,7 +283,13 @@ class MCQGenerator:
 
                     try:
                         doc = dataset[idx]
-                        text = doc.get(text_column, "")
+                        raw_text = doc.get(text_column, "")
+
+                        # Handle list of strings (e.g., paragraphs) by joining
+                        if isinstance(raw_text, list):
+                            text = " ".join(str(item) for item in raw_text if item)
+                        else:
+                            text = str(raw_text) if raw_text else ""
 
                         if not text or not text.strip():
                             break  # Move to next document
@@ -420,7 +455,7 @@ class MCQGenerator:
                 model="gpt-4",
                 temperature=0.7,
                 max_tokens=2000,
-                routing={"strategy": "auto", "cache_enabled": True},
+                routing={"strategy": "auto", "cache_enabled": False},
             )
 
             # ProviderClient now validates response shape, but be defensive here too.
@@ -554,23 +589,23 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
             # Scan for options A, B, C (we expect 3)
             current_opt_idx = 0
             expected_labels = ["A", "B", "C"]
-            
+
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
-                
+
                 if current_opt_idx >= len(expected_labels):
                     break
-                    
+
                 label = expected_labels[current_opt_idx]
                 match_found = False
-                
+
                 # Try specific labels first
                 for pattern, capture_idx in option_patterns:
                     # Compile dynamic regex for the expected label
                     # Special handling for patterns that capture the label vs those that just use it
-                    if capture_idx == 2: # e.g. [A]
+                    if capture_idx == 2:  # e.g. [A]
                         p = r"^\[" + re.escape(label) + r"\]\s*(.*)$"
                         m = re.search(p, line, re.IGNORECASE)
                         if m:
@@ -584,21 +619,25 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
                             # Try with leading dash or bullet
                             p = r"^[\-\*]\s*" + re.escape(label) + r"[\)\.\:\s]\s*(.*)$"
                             m = re.search(p, line, re.IGNORECASE)
-                            
+
                         if m:
                             options.append(m.group(1).strip())
                             match_found = True
                             break
-                
+
                 if match_found:
                     current_opt_idx += 1
 
             if len(options) < 3:
                 # Fallback: if we didn't find specific labels, look for any 3 lines that look like options
                 if not options:
-                    opt_lines = [l.strip() for l in lines if re.search(r"^[A-Z][\)\.\:]", l.strip())]
+                    opt_lines = [
+                        l.strip() for l in lines if re.search(r"^[A-Z][\)\.\:]", l.strip())
+                    ]
                     if len(opt_lines) >= 3:
-                        options = [re.sub(r"^[A-Z][\)\.\:]\s*", "", l).strip() for l in opt_lines[:3]]
+                        options = [
+                            re.sub(r"^[A-Z][\)\.\:]\s*", "", l).strip() for l in opt_lines[:3]
+                        ]
 
             if len(options) != 3:
                 return None
@@ -607,7 +646,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
             correct_val = data.get("CORRECT", "").strip().upper()
             if not correct_val and "CORRECT_ANSWER" in data:
                 correct_val = data.get("CORRECT_ANSWER", "").strip().upper()
-                
+
             correct_answer = None
             if correct_val:
                 # Handle "A", "A)", "CORRECT: A", etc.
@@ -630,7 +669,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
             # Validate essential fields
             question = data.get("QUESTION", "").strip()
             explanation = data.get("EXPLANATION", "").strip()
-            
+
             # More robust extraction if labels are slightly different
             if not question:
                 for k, v in data.items():

@@ -73,3 +73,5 @@ uv.lock
 .mcq_resume.pid
 .mcq_resume.log
 
+uvicorn.log
+mcq_generator.log
