@@ -14,7 +14,7 @@ from time import perf_counter
 from ..config import config
 from ..generator import MCQGenerator
 from ..metrics import inc_job_completed, inc_job_failed, observe_job_duration
-from ..state_manager import StateManager
+from ..storage import StateManager
 
 logger = logging.getLogger(__name__)
 
