@@ -31,12 +31,9 @@ def get_api_key(api_key: str | None = Depends(api_key_header)) -> str | None:
     """
     expected_key = os.getenv("API_KEY")
 
-    # If no API key is configured, raise an error requiring authentication
+    # If no API key is configured, allow all requests
     if not expected_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="API key not configured. Please set the API_KEY environment variable.",
-        )
+        return api_key
 
     # API key is required but not provided
     if not api_key:
@@ -48,6 +45,26 @@ def get_api_key(api_key: str | None = Depends(api_key_header)) -> str | None:
 
     # Invalid API key
     if api_key != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
+    return api_key
+
+
+def get_api_key_optional(api_key: str | None = Depends(api_key_header)) -> str | None:
+    """
+    Optional API key validation - allows requests with or without API key.
+    """
+    expected_key = os.getenv("API_KEY")
+
+    # If no API key is configured, allow all requests
+    if not expected_key:
+        return api_key
+
+    # If API key is provided, validate it
+    if api_key and api_key != expected_key:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key",

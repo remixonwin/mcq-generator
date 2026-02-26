@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...metrics import api_requests
 from ...storage import StateManager
-from ..dependencies import get_api_key, get_state_manager
+from ..dependencies import get_api_key_optional, get_state_manager
 from ..schemas import (
     ErrorResponse,
     ExportFormat,
@@ -36,7 +36,7 @@ def export_job(
     job_id: str,
     request: ExportRequest,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> ExportResponse:
     """Export MCQs for a job."""
     api_requests.labels(path="/api/v1/exports/{job_id}").inc()
@@ -72,7 +72,7 @@ def download_export(
     job_id: str,
     format: ExportFormat = ExportFormat.JSON,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ):
     """Download exported MCQs file."""
     import os
@@ -91,12 +91,13 @@ def download_export(
 
     # Validate job_id to prevent path traversal
     import re
-    if not re.match(r'^[a-zA-Z0-9_-]+$', job_id):
+
+    if not re.match(r"^[a-zA-Z0-9_-]+$", job_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid job_id format",
         )
-    
+
     # Determine file path
     file_path = f".mcq_exports/{job_id}.{format.value}"
 

@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for components that need specific styling */
+@layer components {
+  .chat-input-container {
+    @apply max-w-4xl mx-auto p-5 border border-gray-200 rounded-lg shadow-lg bg-white;
+  }
+
+  .chat-form {
+    @apply flex flex-col gap-4;
+  }
+
+  .chat-textarea {
+    @apply w-full min-h-[120px] p-3 border border-gray-300 rounded-lg text-base resize-vertical focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors;
+  }
+
+  .file-label {
+    @apply inline-block px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer transition-colors w-fit hover:bg-gray-100;
+  }
+
+  .file-info {
+    @apply flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm;
+  }
+
+  .remove-file-btn {
+    @apply bg-transparent border-none text-lg cursor-pointer text-red-500 p-0 w-6 h-6 flex items-center justify-center hover:text-red-600;
+  }
+
+  .submit-btn {
+    @apply px-6 py-3 border-none rounded-lg text-base cursor-pointer transition-colors bg-primary-600 text-white hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed;
+  }
+
+  .upload-btn {
+    @apply px-6 py-3 border-none rounded-lg text-base cursor-pointer transition-colors bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed;
+  }
+}
+
+/* Base styles */
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+  }
+
+  .home {
+    @apply min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6;
+  }
+
+  h1 {
+    @apply text-3xl font-bold text-gray-900 mb-8 text-center;
+  }
+}
+
+/* Animation utilities */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+}

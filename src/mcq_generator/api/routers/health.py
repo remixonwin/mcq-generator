@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from ...storage import StateManager
-from ..dependencies import get_api_key, get_state_manager
+from ..dependencies import get_api_key_optional, get_state_manager
 from ..schemas import HealthResponse
 
 router = APIRouter()
@@ -27,7 +27,7 @@ router = APIRouter()
 )
 def health_check(
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> HealthResponse:
     """Health check endpoint."""
     try:

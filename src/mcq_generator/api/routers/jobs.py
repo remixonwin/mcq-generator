@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from ... import tasks
 from ...metrics import api_requests, jobs_created, jobs_enqueued
 from ...storage import StateManager
-from ..dependencies import get_api_key, get_state_manager
+from ..dependencies import get_api_key, get_api_key_optional, get_state_manager
 from ..schemas import (
     CreateJobRequest,
     CreateJobResponse,
@@ -49,7 +49,7 @@ def list_jobs(
     limit: int = Query(10, ge=1, le=100, description="Page size"),
     order_by: str | None = Query(None, description="Sort order"),
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> JobListResponse:
     """List all jobs with optional filtering."""
     api_requests.labels(path="/api/v1/jobs").inc()
@@ -75,7 +75,7 @@ def list_jobs(
 def create_job(
     request: CreateJobRequest,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> CreateJobResponse:
     """Create a new generation job."""
     api_requests.labels(path="/api/v1/jobs").inc()
@@ -128,7 +128,7 @@ def create_job(
 def get_job(
     job_id: str,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> JobProgress:
     """Get job progress by ID."""
     api_requests.labels(path="/api/v1/jobs/{job_id}").inc()
@@ -153,7 +153,7 @@ def get_job(
 def resume_job(
     job_id: str,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> ResumeJobResponse:
     """Resume an existing job."""
     api_requests.labels(path="/api/v1/jobs/{job_id}/resume").inc()
@@ -198,7 +198,7 @@ def update_job_status(
     job_id: str,
     request: UpdateJobStatusRequest,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> JobProgress:
     """Update job status."""
     service = JobService(sm)
@@ -221,7 +221,7 @@ def update_job_status(
 def delete_job(
     job_id: str,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> None:
     """Delete a job."""
     service = JobService(sm)
@@ -249,7 +249,7 @@ def delete_job(
 def get_job_mcqs(
     job_id: str,
     sm: StateManager = Depends(get_state_manager),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> MCQListResponse:
     """Get all MCQs for a job."""
     from ..services import ExportService

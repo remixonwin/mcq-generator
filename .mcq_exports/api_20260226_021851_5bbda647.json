@@ -1,0 +1,126 @@
+{
+  "generated_at": "2026-02-25T20:19:29.561629",
+  "dataset": null,
+  "total_questions": 3,
+  "mcqs": [
+    {
+      "question": "Which of the following club types are eligible for the FA Cup competition?",
+      "options": [
+        "F.C. United of Manchester from its first season of existence",
+        "Clubs from the Premier League, Football League, and non-league football levels 1-5",
+        "Clubs that have played in either the FA Cup, FA Trophy or FA Vase in the previous season, and have a suitable stadium"
+      ],
+      "correct_answer": 2,
+      "explanation": "Clubs that have played in either the FA Cup, FA Trophy or FA Vase in the previous season, and have a suitable stadium, are eligible for the FA Cup competition.",
+      "metadata": {
+        "source_document": "squad_55181",
+        "source_id": "squad_55181",
+        "source_url": "",
+        "document_hash": "ff7ae8bd99e8049bc7cd1a0f70a77c210a037d0335ce25bda9acf9717883bf78",
+        "specific_names": [
+          "F.C. United of Manchester"
+        ],
+        "specific_places": [
+          "None"
+        ],
+        "specific_dates": [
+          "2005-06"
+        ],
+        "specific_events": [
+          "FA Cup competition"
+        ],
+        "timestamp": "2026-02-26T02:19:03.080975+00:00",
+        "difficulty": "Medium",
+        "topic_category": "FA Cup competition eligibility",
+        "quality_score": 54.025,
+        "question_type": "Factual",
+        "model_name": "gpt-4",
+        "job_id": "api_20260226_021851_5bbda647",
+        "document_index": 55181
+      },
+      "source_text": "The competition is open to any club down to Level 10 of the English football league system which meets the eligibility criteria. All clubs in the top four levels (the Premier League and the three divisions of the Football League) are automatically eligible. Clubs in the next six levels (non-league football) are also eligible provided they have played in either the FA Cup, FA Trophy or FA Vase competitions in the previous season. Newly formed clubs, such as F.C. United of Manchester in 2005–06 an",
+      "question_hash": "ae257de26b2da3c5f2c693403d9ab25bb5878502fd0e92580043b5fa23dc4f1e",
+      "quality_score": 54.025
+    },
+    {
+      "question": "Factual",
+      "options": [
+        "I.M. Pei",
+        "Frank Gehry",
+        "Renzo Piano"
+      ],
+      "correct_answer": 0,
+      "explanation": "The Louvre Pyramid was designed by I.M. Pei, an American architect.",
+      "metadata": {
+        "source_document": "squad_65441",
+        "source_id": "squad_65441",
+        "source_url": "",
+        "document_hash": "d8fea8d7c4f792933bc48ef1b576fd2abff6c4e776aff65d46aed130ad54ca2c",
+        "specific_names": [
+          "I.M. Pei",
+          "Frank Gehry",
+          "Renzo Piano"
+        ],
+        "specific_places": [
+          "Paris"
+        ],
+        "specific_dates": [
+          "1989"
+        ],
+        "specific_events": [
+          "Completion of the Louvre Pyramid"
+        ],
+        "timestamp": "2026-02-26T02:19:25.134518+00:00",
+        "difficulty": "Easy",
+        "topic_category": "Architecture",
+        "quality_score": 36.40416666666667,
+        "question_type": "Factual",
+        "model_name": "gpt-4",
+        "job_id": "api_20260226_021851_5bbda647",
+        "document_index": 65441
+      },
+      "source_text": "Parisian examples of European architecture date back more than a millennium; including the Romanesque church of the Abbey of Saint-Germain-des-Prés (1014-1163); the early Gothic Architecture of the Basilica of Saint-Denis (1144), the Notre Dame Cathedral (1163-1345), the Flamboyant Gothic of Saint Chapelle (1239-1248), the Baroque churches of Saint-Paul-Saint-Louis (1627-1641) and Les Invalides (1670-1708). The 19th century produced the neoclassical church of La Madeleine (1808-1842); the Palais",
+      "question_hash": "8acb39c21b54deec18fcc19f87d51dc2d3c09e2f41f0559f2594bebd39e20b35",
+      "quality_score": 36.40416666666667
+    },
+    {
+      "question": "What has improved between the relations between Ashkenazim and Sephardim since the establishment of Israel?",
+      "options": [
+        "The relations remain tense and unchanged.",
+        "The Israeli Black Panthers' protest movements led to a deterioration of relations.",
+        "There has been a significant improvement in relations, with some Ashkenazi communities accepting significant numbers of Sephardi newcomers."
+      ],
+      "correct_answer": 2,
+      "explanation": "The relations between Ashkenazim and Sephardim have improved over time.",
+      "metadata": {
+        "source_document": "squad_35459",
+        "source_id": "squad_35459",
+        "source_url": "",
+        "document_hash": "b99e43cbf92756578a710e25126632745e6a45547d8b8c7a7b23463793d6fd79",
+        "specific_names": [
+          "Saadia Marciano (leader of the Israeli Black Panthers)"
+        ],
+        "specific_places": [
+          "Israel"
+        ],
+        "specific_dates": [
+          "First decade after the creation of Israel"
+        ],
+        "specific_events": [
+          "The establishment of Israel and the actions of the Israeli Black Panthers"
+        ],
+        "timestamp": "2026-02-26T02:19:29.544973+00:00",
+        "difficulty": "Medium",
+        "topic_category": "Ashkenazim and Sephardim relations",
+        "quality_score": 52.120000000000005,
+        "question_type": "Factual",
+        "model_name": "gpt-4",
+        "job_id": "api_20260226_021851_5bbda647",
+        "document_index": 35459
+      },
+      "source_text": "Relations between Ashkenazim and Sephardim have not always been warm. North African Sepharadim and Berber Jews were often looked upon by Ashkenazim as second-class citizens during the first decade after the creation of Israel. This has led to protest movements such as the Israeli Black Panthers led by Saadia Marciano a Moroccan Jew. Nowadays, relations are getting better. In some instances, Ashkenazi communities have accepted significant numbers of Sephardi newcomers, sometimes resulting in inte",
+      "question_hash": "f60e7b3989aab76aace13253d00fcce90c8f82bf8e7a97cd1e0ddb0a57a2ac7a",
+      "quality_score": 52.120000000000005
+    }
+  ]
+}

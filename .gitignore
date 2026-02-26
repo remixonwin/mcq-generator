@@ -1,11 +1,21 @@
 Nothing should be ignored based on the provided file changes, as they only include source code files (.py files) without any build artifacts, dependencies, or temporary files.
 docs/AUDIT_REPORT.md
+.env
 src/mcq_generator/__pycache__/
 src/mcq_generator/api/__pycache__/
 src/mcq_generator/api/routers/__pycache__/
 src/uvicorn_llm.log
+mcq_state.duckdb
+mcq_state.duckdb.wal
 src/mcq_state.duckdb
 src/uvicorn.log
 src/mcq_generator/api/services/__pycache__/
 src/mcq_generator/exporters/__pycache__/
 src/mcq_generator/storage/__pycache__/
+
+# frontend build artifacts
+frontend/react-ui/node_modules/
+frontend/react-ui/dist/
+frontend/react-ui/.cache/
+frontend/react-ui/.vite/
+

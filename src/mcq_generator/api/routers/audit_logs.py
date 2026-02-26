@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from ..dependencies import get_api_key
+from ..dependencies import get_api_key_optional
 from ..schemas import AuditAction, AuditLog, AuditLogsResponse, ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -34,15 +34,10 @@ def list_audit_logs(
     action: Optional[AuditAction] = Query(None, description="Filter by action"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> AuditLogsResponse:
     """Return a skeleton paginated list of audit logs."""
     # This is a skeleton implementation to satisfy frontend requests.
     # Future work: implement actual audit log persistence and retrieval.
-    
-    return AuditLogsResponse(
-        total=0,
-        offset=offset,
-        limit=limit,
-        items=[]
-    )
+
+    return AuditLogsResponse(total=0, offset=offset, limit=limit, items=[])

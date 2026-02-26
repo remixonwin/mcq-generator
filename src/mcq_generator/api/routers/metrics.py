@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response
 
 from ...metrics import generate_metrics, metrics_available
-from ..dependencies import get_api_key
+from ..dependencies import get_api_key_optional
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ router = APIRouter()
     include_in_schema=True,
 )
 def metrics_endpoint(
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> Response:
     """Get Prometheus metrics."""
     body, content_type = generate_metrics()
@@ -35,7 +35,7 @@ def metrics_endpoint(
     include_in_schema=True,
 )
 def metrics_status(
-    api_key: str | None = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key_optional),
 ) -> dict:
     """Check if metrics are available."""
     return {

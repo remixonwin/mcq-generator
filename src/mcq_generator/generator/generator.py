@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 
 from datasets import load_dataset
 
-from .cache_manager import CacheManager, DuplicateDetector
-from .config import config
-from .filters import DocumentFilter, QualityScorer
-from .provider_client import ProviderClient
+from ..cache_manager import CacheManager, DuplicateDetector
+from ..config import config
+from ..filters import DocumentFilter, QualityScorer
+from ..provider_client import ProviderClient
 from ..storage import StateManager
 
 logger = logging.getLogger(__name__)
@@ -636,7 +636,7 @@ class MCQGenerator:
             try:
                 import httpx
 
-                from .provider_client import CircuitBreakerOpen
+                from ..provider_client import CircuitBreakerOpen
 
                 if isinstance(e, (httpx.HTTPError, CircuitBreakerOpen)):
                     raise InfrastructureError(str(e))
