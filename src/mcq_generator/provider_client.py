@@ -13,17 +13,18 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from . import provider_adapters
+from .config import config as _config
 
 logger = logging.getLogger(__name__)
 
 
-class CircuitBreakerOpen(Exception):
+class CircuitBreakerOpenError(Exception):
     """Raised when circuit breaker is open."""
 
     pass
 
 
-class InvalidProviderResponse(Exception):
+class InvalidProviderResponseError(Exception):
     """Provider returned a syntactically valid HTTP response but missing expected fields."""
 
     pass
@@ -45,13 +46,7 @@ class ProviderClient:
         self.base_url = base_url.rstrip("/")
 
         # Optional HTTP/2 support
-        try:
-            import h2
-
-            http2_support = True
-        except ImportError:
-            http2_support = False
-            logger.warning("h2 package not found, HTTP/2 support disabled")
+        http2_support = False
 
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -290,7 +285,7 @@ class ProviderClient:
                     # Rotate old dumps to limit disk usage (best-effort).
                     try:
                         retention = (
-                            config.DUMP_RETENTION if hasattr(config, "DUMP_RETENTION") else 200
+                            _config.DUMP_RETENTION if hasattr(_config, "DUMP_RETENTION") else 200
                         )
                         files = sorted(
                             dump_dir.glob("provider_response_*.json"),
@@ -315,7 +310,7 @@ class ProviderClient:
                 # for semantic provider failures so retry policies don't treat them
                 # as transient network errors.
                 self._handle_failure(Exception("Invalid provider response: missing 'choices'"))
-                raise InvalidProviderResponse("Invalid provider response: missing 'choices'")
+                raise InvalidProviderResponseError("Invalid provider response: missing 'choices'")
 
             self.failure_count = 0
             self.successful_requests += 1
@@ -365,7 +360,7 @@ class ProviderClient:
                     logger.info("Circuit breaker: open -> half-open")
                     self.circuit_state = "half-open"
                 else:
-                    raise CircuitBreakerOpen(
+                    raise CircuitBreakerOpenError(
                         f"Circuit breaker is open. Retry in {self.circuit_breaker_timeout - elapsed}s"
                     )
 

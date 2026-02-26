@@ -636,9 +636,9 @@ class MCQGenerator:
             try:
                 import httpx
 
-                from ..provider_client import CircuitBreakerOpen
+                from ..provider_client import CircuitBreakerOpenError
 
-                if isinstance(e, (httpx.HTTPError, CircuitBreakerOpen)):
+                if isinstance(e, (httpx.HTTPError, CircuitBreakerOpenError)):
                     raise InfrastructureError(str(e))
             except Exception:
                 # If httpx isn't present or import fails, fall back to string checks.
@@ -753,7 +753,7 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
                 match_found = False
 
                 # Try specific labels first
-                for pattern, capture_idx in option_patterns:
+                for _pattern, capture_idx in option_patterns:
                     # Compile dynamic regex for the expected label
                     # Special handling for patterns that capture the label vs those that just use it
                     if capture_idx == 2:  # e.g. [A]
@@ -783,11 +783,11 @@ TOPIC: {example.get("metadata", {}).get("topic_category", "General")}
                 # Fallback: if we didn't find specific labels, look for any 3 lines that look like options
                 if not options:
                     opt_lines = [
-                        l.strip() for l in lines if re.search(r"^[A-Z][\)\.\:]", l.strip())
+                        line.strip() for line in lines if re.search(r"^[A-Z][\)\.\:]", line.strip())
                     ]
                     if len(opt_lines) >= 3:
                         options = [
-                            re.sub(r"^[A-Z][\)\.\:]\s*", "", l).strip() for l in opt_lines[:3]
+                            re.sub(r"^[A-Z][\)\.\:]\s*", "", line).strip() for line in opt_lines[:3]
                         ]
 
             if len(options) != 3:

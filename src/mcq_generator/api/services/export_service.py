@@ -107,7 +107,7 @@ class ExportService:
             }
 
         # Export to file
-        result = exporter.export(mcqs, str(output_path), include_metadata=include_metadata)
+        _result = exporter.export(mcqs, str(output_path), include_metadata=include_metadata)
 
         return {
             "job_id": job_id,
@@ -141,7 +141,7 @@ class ExportService:
                         id=chr(65 + i),  # A, B, C
                         text=opt_text,
                         is_correct=(i == correct_idx),
-                        explanation=None  # Individual explanations not available in current internal format
+                        explanation=None,  # Individual explanations not available in current internal format
                     )
                 )
 
@@ -157,6 +157,7 @@ class ExportService:
             if ts_raw:
                 try:
                     from datetime import datetime
+
                     if isinstance(ts_raw, str):
                         # Handle potential fractional seconds or Z suffix
                         ts_raw = ts_raw.replace("Z", "+00:00")
@@ -173,7 +174,11 @@ class ExportService:
             q_hash = mcq.get("question_hash")
             if not q_hash:
                 # Prioritize mcq_id or question_hash from metadata
-                q_hash = mcq.get("mcq_id") or metadata_raw.get("question_hash") or metadata_raw.get("document_hash")
+                q_hash = (
+                    mcq.get("mcq_id")
+                    or metadata_raw.get("question_hash")
+                    or metadata_raw.get("document_hash")
+                )
             if not q_hash:
                 q_hash = hashlib.sha256(mcq.get("question", "").encode()).hexdigest()
 

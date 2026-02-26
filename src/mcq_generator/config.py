@@ -41,19 +41,19 @@ class Config:
         return self.env.get(key) or os.getenv(key) or default
 
     @property
-    def HF_TOKEN(self) -> str | None:
+    def HF_TOKEN(self) -> str | None:  # noqa: N802
         return self.get("HF_TOKEN")
 
     @property
-    def PROVIDER_URL(self) -> str:
+    def PROVIDER_URL(self) -> str:  # noqa: N802
         return self.get("ROUTER_URL") or self.get("PROVIDER_URL") or "http://localhost:7330"
 
     @property
-    def LLM_MODEL(self) -> str:
+    def LLM_MODEL(self) -> str:  # noqa: N802
         return self.get("LLM_MODEL") or "gpt-4"
 
     @property
-    def CONSECUTIVE_FAILURE_LIMIT(self) -> int | None:
+    def CONSECUTIVE_FAILURE_LIMIT(self) -> int | None:  # noqa: N802
         """Maximum consecutive failures before an aggressive backoff/reset.
 
         If unset or set to an empty string, returns None which disables the hard
@@ -68,28 +68,28 @@ class Config:
             return None
 
     @property
-    def BACKOFF_INITIAL_SECONDS(self) -> int:
+    def BACKOFF_INITIAL_SECONDS(self) -> int:  # noqa: N802
         try:
             return int(self.get("BACKOFF_INITIAL_SECONDS") or 30)
         except Exception:
             return 30
 
     @property
-    def BACKOFF_MULTIPLIER(self) -> int:
+    def BACKOFF_MULTIPLIER(self) -> int:  # noqa: N802
         try:
             return int(self.get("BACKOFF_MULTIPLIER") or 2)
         except Exception:
             return 2
 
     @property
-    def BACKOFF_MAX_SECONDS(self) -> int:
+    def BACKOFF_MAX_SECONDS(self) -> int:  # noqa: N802
         try:
             return int(self.get("BACKOFF_MAX_SECONDS") or 1800)
         except Exception:
             return 1800
 
     @property
-    def BACKOFF_TRIGGER(self) -> int:
+    def BACKOFF_TRIGGER(self) -> int:  # noqa: N802
         """When hard limit is disabled, perform backoff every N consecutive failures."""
         try:
             return int(self.get("BACKOFF_TRIGGER") or 50)
@@ -97,7 +97,7 @@ class Config:
             return 50
 
     @property
-    def COUNT_CONTENT_FAILURES(self) -> bool:
+    def COUNT_CONTENT_FAILURES(self) -> bool:  # noqa: N802
         """Whether to count content/parse failures toward backoff (default False)."""
         v = self.get("COUNT_CONTENT_FAILURES")
         if v is None:
@@ -105,7 +105,7 @@ class Config:
         return str(v).lower() in ("1", "true", "yes", "on")
 
     @property
-    def TEXT_COLUMN_WHITELIST(self) -> list[str]:
+    def TEXT_COLUMN_WHITELIST(self) -> list[str]:  # noqa: N802
         """Preferred text-like column name terms (comma-separated in env)."""
         v = self.get("TEXT_COLUMN_WHITELIST")
         if not v:
@@ -124,21 +124,21 @@ class Config:
         return [t.strip() for t in v.split(",") if t.strip()]
 
     @property
-    def MAX_SYNTH_COLUMNS(self) -> int:
+    def MAX_SYNTH_COLUMNS(self) -> int:  # noqa: N802
         try:
             return int(self.get("MAX_SYNTH_COLUMNS") or 6)
         except Exception:
             return 6
 
     @property
-    def CONTENT_FAILURE_LIMIT(self) -> int:
+    def CONTENT_FAILURE_LIMIT(self) -> int:  # noqa: N802
         try:
             return int(self.get("CONTENT_FAILURE_LIMIT") or 200)
         except Exception:
             return 200
 
     @property
-    def DUMP_RETENTION(self) -> int:
+    def DUMP_RETENTION(self) -> int:  # noqa: N802
         try:
             return int(self.get("DUMP_RETENTION") or 200)
         except Exception:

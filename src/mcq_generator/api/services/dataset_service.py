@@ -66,7 +66,6 @@ class DatasetService:
             "total": len(items),  # Note: HuggingFace doesn't provide total count easily
         }
 
-
     def probe_dataset(self, dataset_name: str, limit_samples: int = 3) -> dict:
         """Lightweight preflight probe for a HuggingFace dataset.
 
@@ -79,7 +78,12 @@ class DatasetService:
             ds = load_dataset(dataset_name, split="train", streaming=True, token=config.HF_TOKEN)
         except Exception as e:
             logger.warning(f"Failed to load dataset {dataset_name}: {e}")
-            return {"usable": False, "text_column": None, "sample": None, "reason": f"load_error: {e}"}
+            return {
+                "usable": False,
+                "text_column": None,
+                "sample": None,
+                "reason": f"load_error: {e}",
+            }
 
         samples = []
         try:
@@ -162,7 +166,12 @@ class DatasetService:
                     break
 
         if not sample_text:
-            return {"usable": False, "text_column": None, "sample": None, "reason": "no_text_samples"}
+            return {
+                "usable": False,
+                "text_column": None,
+                "sample": None,
+                "reason": "no_text_samples",
+            }
 
         reason = f"probe_ok (column={chosen or 'synthesized'})"
         return {"usable": True, "text_column": chosen, "sample": sample_text, "reason": reason}

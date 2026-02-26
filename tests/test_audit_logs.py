@@ -2,8 +2,8 @@
 Tests for audit logs endpoints
 """
 
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 
@@ -33,10 +33,10 @@ def test_get_audit_logs_success(client: TestClient):
             "page": 1,
             "per_page": 10
         }
-        
+
         response = client.get("/api/v1/audit-logs")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "logs" in data
         assert "total" in data
@@ -52,7 +52,7 @@ def test_get_audit_logs_with_filters(client: TestClient):
             "page": 1,
             "per_page": 10
         }
-        
+
         response = client.get("/api/v1/audit-logs?action=job_created&user_id=user_123&limit=5")
         assert response.status_code == 200
 
@@ -66,7 +66,7 @@ def test_get_audit_logs_with_date_range(client: TestClient):
             "page": 1,
             "per_page": 10
         }
-        
+
         response = client.get("/api/v1/audit-logs?start_date=2024-01-01&end_date=2024-01-31")
         assert response.status_code == 200
 
@@ -80,10 +80,10 @@ def test_get_audit_logs_pagination(client: TestClient):
             "page": 2,
             "per_page": 20
         }
-        
+
         response = client.get("/api/v1/audit-logs?page=2&per_page=20")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert data["page"] == 2
         assert data["per_page"] == 20
@@ -102,10 +102,10 @@ def test_get_audit_log_by_id(client: TestClient):
             "ip_address": "192.168.1.1",
             "user_agent": "Mozilla/5.0..."
         }
-        
+
         response = client.get("/api/v1/audit-logs/log_1")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert data["id"] == "log_1"
         assert "timestamp" in data
@@ -116,7 +116,7 @@ def test_get_audit_log_not_found(client: TestClient):
     """Test getting non-existent audit log."""
     with patch('mcq_generator.api.routers.audit_logs.get_audit_log') as mock_log:
         mock_log.side_effect = ValueError("Audit log not found")
-        
+
         response = client.get("/api/v1/audit-logs/nonexistent_log")
         assert response.status_code == 404
 
@@ -139,10 +139,10 @@ def test_audit_logs_response_structure(client: TestClient):
             "page": 1,
             "per_page": 10
         }
-        
+
         response = client.get("/api/v1/audit-logs")
         assert response.status_code == 200
-        
+
         data = response.json()
         log_entry = data["logs"][0]
         required_fields = ["id", "timestamp", "action", "user_id"]
@@ -154,7 +154,7 @@ def test_audit_logs_invalid_parameters(client: TestClient):
     """Test audit logs with invalid parameters."""
     response = client.get("/api/v1/audit-logs?page=-1")
     assert response.status_code == 422  # Validation error
-    
+
     response = client.get("/api/v1/audit-logs?per_page=0")
     assert response.status_code == 422  # Validation error
 
@@ -169,7 +169,7 @@ def test_audit_logs_error_handling(client: TestClient):
     """Test error handling in audit logs endpoints."""
     with patch('mcq_generator.api.routers.audit_logs.get_audit_logs') as mock_logs:
         mock_logs.side_effect = Exception("Database connection failed")
-        
+
         response = client.get("/api/v1/audit-logs")
         assert response.status_code == 500
 
@@ -183,10 +183,10 @@ def test_audit_logs_empty_result(client: TestClient):
             "page": 1,
             "per_page": 10
         }
-        
+
         response = client.get("/api/v1/audit-logs")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert len(data["logs"]) == 0
         assert data["total"] == 0
@@ -212,10 +212,10 @@ def test_audit_logs_action_filter(client: TestClient):
             ],
             "total": 1
         }
-        
+
         response = client.get("/api/v1/audit-logs?action=job_created")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert len(data["logs"]) == 1
         assert data["logs"][0]["action"] == "job_created"
@@ -235,10 +235,10 @@ def test_audit_logs_user_filter(client: TestClient):
             ],
             "total": 1
         }
-        
+
         response = client.get("/api/v1/audit-logs?user_id=user_123")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert len(data["logs"]) == 1
         assert data["logs"][0]["user_id"] == "user_123"

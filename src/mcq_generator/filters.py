@@ -228,7 +228,7 @@ class QualityScorer:
 
         lengths = [len(opt) for opt in options]
         avg_length = sum(lengths) / 3
-        variance = sum((l - avg_length) ** 2 for l in lengths) / 3
+        variance = sum((length - avg_length) ** 2 for length in lengths) / 3
         balance_score = max(0, 100 - variance * 2)
 
         nontrivial_score = sum(100 if len(opt) > 10 else 0 for opt in options) / 3

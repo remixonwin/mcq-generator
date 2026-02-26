@@ -100,7 +100,7 @@ class JobService:
     ) -> JobProgress:
         """Update job status."""
         # Verify job exists
-        job = self.state.get_job_progress(job_id)
+        _job = self.state.get_job_progress(job_id)
 
         # Update status
         self.state.update_job_status(job_id, status.value)

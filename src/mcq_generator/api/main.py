@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
         title="MCQ Generator API",
         description="""
         High-Performance MCQ Generator API.
-        
+
         This API provides endpoints for:
         - Dataset search on HuggingFace Hub
         - Job creation and management

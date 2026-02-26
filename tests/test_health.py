@@ -2,7 +2,6 @@
 Tests for health check endpoints
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -10,7 +9,7 @@ def test_health_check(client: TestClient):
     """Test basic health check endpoint."""
     response = client.get("/health")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "status" in data
     assert data["status"] == "healthy"
@@ -22,7 +21,7 @@ def test_health_check_with_details(client: TestClient):
     """Test health check endpoint with detailed information."""
     response = client.get("/health?detailed=true")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "status" in data
     assert "timestamp" in data
@@ -34,7 +33,7 @@ def test_health_check_response_structure(client: TestClient):
     """Test health check response has correct structure."""
     response = client.get("/health")
     assert response.status_code == 200
-    
+
     data = response.json()
     required_fields = ["status", "timestamp", "version"]
     for field in required_fields:

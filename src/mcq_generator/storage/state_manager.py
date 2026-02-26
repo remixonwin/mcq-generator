@@ -572,7 +572,6 @@ class StateManager:
             out.append({"log_id": r[0], "level": r[1], "message": r[2], "created_at": created})
         return out
 
-
     def get_job_progress(self, job_id: str) -> dict:
         """Get current progress for a job."""
         result = self.conn.execute(
@@ -697,8 +696,7 @@ class StateManager:
             elif export_path_json.exists():
                 try:
                     data = json.loads(export_path_json.read_text(encoding="utf-8"))
-                    for entry in data.get("mcqs", []):
-                        yield entry
+                    yield from data.get("mcqs", [])
                 except Exception:
                     return
 
@@ -875,7 +873,7 @@ class StateManager:
     def get_statistics(self) -> dict:
         """Get overall statistics."""
         stats = self.conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_jobs,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
                 SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running_jobs,

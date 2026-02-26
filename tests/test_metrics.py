@@ -2,8 +2,8 @@
 Tests for metrics endpoints
 """
 
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 
@@ -22,10 +22,10 @@ def test_get_metrics_success(client: TestClient):
             "system_uptime": 86400,
             "memory_usage": 0.65
         }
-        
+
         response = client.get("/metrics")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "jobs_created" in data
         assert "api_requests" in data
@@ -40,10 +40,10 @@ def test_get_metrics_with_time_range(client: TestClient):
             "jobs_completed": 45,
             "time_range": "24h"
         }
-        
+
         response = client.get("/metrics?range=24h")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "time_range" in data
 
@@ -59,10 +59,10 @@ def test_metrics_response_structure(client: TestClient):
             "total_questions_generated": 0,
             "api_requests": 0
         }
-        
+
         response = client.get("/metrics")
         assert response.status_code == 200
-        
+
         data = response.json()
         # Should contain key metric categories
         expected_categories = ["jobs", "questions", "api"]
@@ -79,10 +79,10 @@ def test_metrics_data_types(client: TestClient):
             "system_healthy": True,  # bool
             "last_reset": "2024-01-01T00:00:00Z"  # string
         }
-        
+
         response = client.get("/metrics")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert isinstance(data["jobs_created"], int)
         assert isinstance(data["cache_hit_rate"], float)
@@ -94,7 +94,7 @@ def test_metrics_error_handling(client: TestClient):
     """Test error handling in metrics endpoint."""
     with patch('mcq_generator.api.routers.metrics.get_metrics') as mock_metrics:
         mock_metrics.side_effect = Exception("Metrics service unavailable")
-        
+
         response = client.get("/metrics")
         assert response.status_code == 500
 
@@ -103,14 +103,14 @@ def test_metrics_caching(client: TestClient):
     """Test metrics endpoint caching behavior."""
     with patch('mcq_generator.api.routers.metrics.get_metrics') as mock_metrics:
         mock_metrics.return_value = {"jobs_created": 100}
-        
+
         # Make multiple requests
         response1 = client.get("/metrics")
         response2 = client.get("/metrics")
-        
+
         assert response1.status_code == 200
         assert response2.status_code == 200
-        
+
         # Both should return the same data
         assert response1.json() == response2.json()
 
@@ -140,10 +140,10 @@ def test_detailed_metrics(client: TestClient):
                 {"date": "2024-01-02", "jobs": 30}
             ]
         }
-        
+
         response = client.get("/metrics?detailed=true")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "summary" in data
         assert "by_status" in data
@@ -153,7 +153,7 @@ def test_metrics_performance(client: TestClient):
     """Test metrics endpoint performance."""
     with patch('mcq_generator.api.routers.metrics.get_metrics') as mock_metrics:
         mock_metrics.return_value = {"jobs_created": 100}
-        
+
         # Metrics should be fast to load
         response = client.get("/metrics")
         assert response.status_code == 200
@@ -177,10 +177,10 @@ def test_metrics_zero_values(client: TestClient):
             "total_questions_generated": 0,
             "api_requests": 0
         }
-        
+
         response = client.get("/metrics")
         assert response.status_code == 200
-        
+
         data = response.json()
         # All count metrics should be zero
         for key, value in data.items():

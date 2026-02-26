@@ -146,7 +146,7 @@ async def run_generation_job_simple(
 
         # Run generation - iterate without yielding
         count = 0
-        async for mcq in gen.generate_from_dataset(
+        async for _mcq in gen.generate_from_dataset(
             dataset_name=dataset,
             target_questions=target,
             resume_job_id=job_id,

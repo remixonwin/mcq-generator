@@ -2,8 +2,8 @@
 Integration tests for MCQ Generator API
 """
 
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 
@@ -17,7 +17,7 @@ class TestMCQGeneratorIntegration:
              patch('mcq_generator.api.routers.jobs.create_job') as mock_create_job, \
              patch('mcq_generator.api.routers.jobs.get_job') as mock_get_job, \
              patch('mcq_generator.api.routers.exports.export_job') as mock_export:
-            
+
             # Step 1: Search datasets
             mock_search.return_value = {
                 "datasets": [{
@@ -27,11 +27,11 @@ class TestMCQGeneratorIntegration:
                 }],
                 "total": 1
             }
-            
+
             search_response = client.get("/api/v1/datasets/search?query=test")
             assert search_response.status_code == 200
             dataset_id = search_response.json()["datasets"][0]["id"]
-            
+
             # Step 2: Create job
             mock_create_job.return_value = {
                 "id": "test_job",
@@ -39,7 +39,7 @@ class TestMCQGeneratorIntegration:
                 "status": "pending",
                 "config": {"num_questions": 5}
             }
-            
+
             job_request = {
                 "dataset_id": dataset_id,
                 "config": {"num_questions": 5}
@@ -47,7 +47,7 @@ class TestMCQGeneratorIntegration:
             job_response = client.post("/api/v1/jobs", json=job_request)
             assert job_response.status_code == 201
             job_id = job_response.json()["id"]
-            
+
             # Step 3: Check job status
             mock_get_job.return_value = {
                 "id": job_id,
@@ -57,18 +57,18 @@ class TestMCQGeneratorIntegration:
                     {"id": 1, "question": "Test question", "options": ["A", "B", "C", "D"], "correct": "A"}
                 ]
             }
-            
+
             status_response = client.get(f"/api/v1/jobs/{job_id}")
             assert status_response.status_code == 200
             assert status_response.json()["status"] == "completed"
-            
+
             # Step 4: Export results
             mock_export.return_value = {
                 "questions": [
                     {"id": 1, "question": "Test question", "options": ["A", "B", "C", "D"], "correct": "A"}
                 ]
             }
-            
+
             export_response = client.get(f"/api/v1/exports/{job_id}?format=json")
             assert export_response.status_code == 200
             assert "questions" in export_response.json()
@@ -77,7 +77,7 @@ class TestMCQGeneratorIntegration:
         """Test error handling across the workflow."""
         with patch('mcq_generator.dataset_search.search_datasets') as mock_search:
             mock_search.side_effect = Exception("Service unavailable")
-            
+
             response = client.get("/api/v1/datasets/search?query=test")
             assert response.status_code == 500
 
@@ -85,7 +85,7 @@ class TestMCQGeneratorIntegration:
         """Test health check endpoint integration."""
         response = client.get("/health")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "status" in data
         assert data["status"] == "healthy"
@@ -98,10 +98,10 @@ class TestMCQGeneratorIntegration:
                 "jobs_completed": 8,
                 "api_requests": 100
             }
-            
+
             response = client.get("/metrics")
             assert response.status_code == 200
-            
+
             data = response.json()
             assert "jobs_created" in data
             assert isinstance(data["jobs_created"], int)
@@ -117,7 +117,7 @@ class TestMCQGeneratorIntegration:
         # Test OpenAPI schema
         response = client.get("/openapi.json")
         assert response.status_code == 200
-        
+
         # Test docs endpoint (if available)
         response = client.get("/docs")
         assert response.status_code in [200, 404]  # May not be available in test client
@@ -127,7 +127,7 @@ class TestMCQGeneratorIntegration:
         # Test invalid JSON
         response = client.post("/api/v1/jobs", data="invalid json")
         assert response.status_code == 422
-        
+
         # Test missing required fields
         response = client.post("/api/v1/jobs", json={})
         assert response.status_code == 422
@@ -136,7 +136,7 @@ class TestMCQGeneratorIntegration:
         """Test response formats are consistent across endpoints."""
         with patch('mcq_generator.dataset_search.search_datasets') as mock_search:
             mock_search.return_value = {"datasets": [], "total": 0}
-            
+
             response = client.get("/api/v1/datasets/search")
             assert response.status_code == 200
             assert "application/json" in response.headers["content-type"]

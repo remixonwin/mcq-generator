@@ -6,7 +6,7 @@ from abc import ABC
 from typing import Any
 
 
-class BaseExporter(ABC):
+class BaseExporter(ABC):  # noqa: B024
     """Abstract base class for all exporters."""
 
     def __init__(
@@ -40,11 +40,11 @@ class BaseExporter(ABC):
     def export(self, mcqs: list[dict[str, Any]], output_file: str | None = None) -> str:
         """
         Export MCQs to the specified output file or return as string.
-        
+
         Args:
             mcqs: List of MCQ dictionaries
             output_file: Optional output file path. If None, returns string.
-            
+
         Returns:
             The exported content as a string (if output_file is None) or empty string.
         """
@@ -55,16 +55,10 @@ class BaseExporter(ABC):
         filtered = mcqs
 
         if self.min_quality is not None:
-            filtered = [
-                mcq for mcq in filtered
-                if mcq.get("quality_score", 0) >= self.min_quality
-            ]
+            filtered = [mcq for mcq in filtered if mcq.get("quality_score", 0) >= self.min_quality]
 
         if self.max_quality is not None:
-            filtered = [
-                mcq for mcq in filtered
-                if mcq.get("quality_score", 0) <= self.max_quality
-            ]
+            filtered = [mcq for mcq in filtered if mcq.get("quality_score", 0) <= self.max_quality]
 
         return filtered
 
@@ -73,10 +67,7 @@ class BaseExporter(ABC):
         if not self.difficulty:
             return mcqs
 
-        return [
-            mcq for mcq in mcqs
-            if mcq.get("metadata", {}).get("difficulty") == self.difficulty
-        ]
+        return [mcq for mcq in mcqs if mcq.get("metadata", {}).get("difficulty") == self.difficulty]
 
     def filter_by_topic(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter MCQs by topic category (substring match)."""
@@ -85,8 +76,10 @@ class BaseExporter(ABC):
 
         topic_filter = self.topic
         return [
-            mcq for mcq in mcqs
-            if topic_filter.lower() in str(mcq.get("metadata", {}).get("topic_category") or "").lower()
+            mcq
+            for mcq in mcqs
+            if topic_filter.lower()
+            in str(mcq.get("metadata", {}).get("topic_category") or "").lower()
         ]
 
     def apply_filters(self, mcqs: list[dict[str, Any]]) -> list[dict[str, Any]]:
