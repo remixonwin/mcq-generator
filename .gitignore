@@ -1,1 +1,11 @@
 Nothing should be ignored based on the provided file changes, as they only include source code files (.py files) without any build artifacts, dependencies, or temporary files.
+docs/AUDIT_REPORT.md
+src/mcq_generator/__pycache__/
+src/mcq_generator/api/__pycache__/
+src/mcq_generator/api/routers/__pycache__/
+src/uvicorn_llm.log
+src/mcq_state.duckdb
+src/uvicorn.log
+src/mcq_generator/api/services/__pycache__/
+src/mcq_generator/exporters/__pycache__/
+src/mcq_generator/storage/__pycache__/

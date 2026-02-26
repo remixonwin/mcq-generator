@@ -3,15 +3,18 @@ FROM python:3.11-slim
 # Set working directory inside container
 WORKDIR /app
 
-# Copy project metadata and requirements first to take advantage of build cache
-COPY pyproject.toml requirements.txt ./
+# Copy requirements first so we can leverage caching
+COPY requirements.txt ./
 
-# Upgrade pip and install the package along with its dependencies
+# Upgrade pip and install all dependencies via requirements
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the source code
 COPY . .
+
+# Set PYTHONPATH so the package can be imported from source
+ENV PYTHONPATH=/app/src
 
 # Make sure our helper scripts are executable if they exist
 RUN if [ -f ./scripts/run_api.sh ]; then chmod +x ./scripts/run_api.sh; fi

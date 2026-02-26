@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...metrics import api_requests
-from ...state_manager import StateManager
+from ...storage import StateManager
 from ..dependencies import get_api_key, get_state_manager
 from ..schemas import (
     ErrorResponse,

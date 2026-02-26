@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ... import tasks
 from ...metrics import api_requests, jobs_created, jobs_enqueued
-from ...state_manager import StateManager
+from ...storage import StateManager
 from ..dependencies import get_api_key, get_state_manager
 from ..schemas import (
     CreateJobRequest,

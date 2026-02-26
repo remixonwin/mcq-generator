@@ -17,7 +17,7 @@ from ...api.schemas import (
     JobStatistics,
     StatusEnum,
 )
-from ...state_manager import StateManager
+from ...storage import StateManager
 
 logger = logging.getLogger(__name__)
 

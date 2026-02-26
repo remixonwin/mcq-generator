@@ -11,7 +11,7 @@ import os
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from ...state_manager import StateManager
+from ...storage import StateManager
 from ..dependencies import get_api_key, get_state_manager
 from ..schemas import HealthResponse
 
