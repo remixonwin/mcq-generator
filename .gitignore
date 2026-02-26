@@ -19,3 +19,11 @@ frontend/react-ui/dist/
 frontend/react-ui/.cache/
 frontend/react-ui/.vite/
 
+# caches, exports, and runtime state
+.mcq_cache/
+.mcq_exports/
+.job_status/
+*.log
+*.pyc
+__pycache__/
+
