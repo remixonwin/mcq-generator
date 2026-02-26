@@ -46,7 +46,7 @@ class Config:
 
     @property
     def PROVIDER_URL(self) -> str:
-        return self.get("ROUTER_URL") or self.get("PROVIDER_URL") or "http://localhost:7544"
+        return self.get("ROUTER_URL") or self.get("PROVIDER_URL") or "http://localhost:7330"
 
     @property
     def LLM_MODEL(self) -> str:

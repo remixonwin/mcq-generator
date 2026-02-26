@@ -13,7 +13,6 @@ from typing import Any
 import duckdb
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
 
 
 class StateManager:
@@ -88,8 +87,8 @@ class StateManager:
                     logger.info("Removing stale lock file from dead process %d", pid)
                     lock_file.unlink()
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to check stale lock: %s", e)
         return False
 
     def _initialize_schema(self) -> None:
