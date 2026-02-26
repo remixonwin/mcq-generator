@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
-from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from ...metrics import api_requests
 from ..dependencies import get_api_key_optional
@@ -542,6 +541,7 @@ def recommend_dataset(
 
         if results:
             # First check for generic/known working datasets as fallback
+            q_lower = q.lower()
             known_datasets = {
                 "squad": {"dataset": "squad", "text_column": "context"},
                 "ag_news": {"dataset": "fancyzhx/ag_news", "text_column": "text"},
@@ -716,7 +716,7 @@ def recommend_dataset(
         logger.warning(f"HuggingFace search failed: {e}")
 
     # Ultimate fallback only if HF search fails completely
-    logger.warning(f"HF search failed, using default dataset")
+    logger.warning("HF search failed, using default dataset")
     return RecommendDatasetResponse(
         dataset=DEFAULT_DATASET["dataset"],
         text_column=DEFAULT_DATASET["text_column"],

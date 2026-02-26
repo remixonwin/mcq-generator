@@ -5,13 +5,11 @@ Provides endpoints for retrieving system and user audit trails.
 """
 
 import logging
-from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
 from ..dependencies import get_api_key_optional
-from ..schemas import AuditAction, AuditLog, AuditLogsResponse, ErrorResponse
+from ..schemas import AuditAction, AuditLogsResponse, ErrorResponse
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +27,9 @@ router = APIRouter(prefix="/audit-logs")
     },
 )
 def list_audit_logs(
-    run_id: Optional[str] = Query(None, description="Filter by run ID"),
-    mcq_id: Optional[str] = Query(None, description="Filter by MCQ ID"),
-    action: Optional[AuditAction] = Query(None, description="Filter by action"),
+    run_id: str | None = Query(None, description="Filter by run ID"),
+    mcq_id: str | None = Query(None, description="Filter by MCQ ID"),
+    action: AuditAction | None = Query(None, description="Filter by action"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     api_key: str | None = Depends(get_api_key_optional),

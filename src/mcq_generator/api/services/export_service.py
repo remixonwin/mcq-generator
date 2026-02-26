@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,7 @@ from ...exporters.csv_exporter import CSVExporter
 from ...exporters.json_exporter import JSONExporter
 from ...exporters.markdown_exporter import MarkdownExporter
 from ...exporters.pdf_exporter import PDFExporter
-from ..schemas import ExportFormat, MCQItem, MCQMetadata, MCQOption
+from ..schemas import ExportFormat, MCQItem, MCQOption
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +130,7 @@ class ExportService:
         mcq_items = []
         for mcq in mcqs:
             metadata_raw = mcq.get("metadata", {})
-            
+
             # Map options to MCQOption objects
             options_raw = mcq.get("options", [])
             correct_idx = mcq.get("correct_answer", 0)
@@ -151,7 +150,7 @@ class ExportService:
             quality_score = mcq.get("quality_score")
             if quality_score is None:
                 quality_score = metadata_raw.get("quality_score", 0.0)
-            
+
             # Try to get generation timestamp
             ts_raw = metadata_raw.get("timestamp")
             generated_at = None
@@ -166,7 +165,7 @@ class ExportService:
                         generated_at = ts_raw
                 except Exception:
                     pass
-            
+
             if not generated_at:
                 generated_at = datetime.now()
 

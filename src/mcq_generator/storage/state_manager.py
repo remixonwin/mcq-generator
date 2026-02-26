@@ -48,7 +48,7 @@ class StateManager:
                 except Exception as e:
                     logger.debug(f"Could not set WAL pragmas: {e}")
                 break
-            except duckdb.IOException as e:
+            except duckdb.IOException:
                 if attempt == max_attempts:
                     if self._try_recover_from_stale_lock():
                         logger.info("Recovered from stale lock")

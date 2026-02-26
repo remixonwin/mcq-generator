@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from datasets import load_dataset
+
+from ...config import config
 from ...dataset_search import search_datasets
 from ..schemas import DatasetItem
-from ...config import config
-from datasets import load_dataset
 
 logger = logging.getLogger(__name__)
 

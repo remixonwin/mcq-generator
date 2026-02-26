@@ -5,7 +5,6 @@ the new API module and the legacy compatibility endpoints can share state
 without circular imports or relying on DuckDB.
 """
 
-from typing import Dict
 
 # job_id -> job dict
-_inmem_jobs: Dict[str, dict] = {}
+_inmem_jobs: dict[str, dict] = {}

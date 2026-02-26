@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from ... import tasks
 from ...metrics import api_requests, jobs_created, jobs_enqueued
 from ...storage import StateManager
-from ..dependencies import get_api_key, get_api_key_optional, get_state_manager
+from ..dependencies import get_api_key_optional, get_state_manager
 from ..schemas import (
     CreateJobRequest,
     CreateJobResponse,
@@ -26,7 +26,7 @@ from ..schemas import (
     StatusEnum,
     UpdateJobStatusRequest,
 )
-from ..services import JobService, DatasetService
+from ..services import DatasetService, JobService
 
 logger = logging.getLogger(__name__)
 

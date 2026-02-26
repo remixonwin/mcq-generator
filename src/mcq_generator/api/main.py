@@ -24,10 +24,6 @@ from .routers import (
     jobs,
     metrics,
 )
-from .. import tasks
-from ..dataset_search import search_datasets
-from ..storage import StateManager
-from ..metrics import jobs_created, jobs_enqueued, api_requests
 
 # Configure logging
 logging.basicConfig(
