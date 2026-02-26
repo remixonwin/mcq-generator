@@ -1,0 +1,114 @@
+# Docker Compose override for scaling instances
+# Use with: docker compose -f docker-compose.yml -f docker-compose.scale.yml up
+
+version: '3.8'
+
+services:
+  # Load balancer for multiple instances
+  nginx:
+    image: nginx:alpine
+    container_name: mcq-generator-lb
+    ports:
+      - "7560:7560"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - mcq-generator-1
+      - mcq-generator-2
+      - mcq-generator-3
+    networks:
+      - mcq-network
+    profiles:
+      - load-balanced
+
+  # Additional instances for scaling
+  mcq-generator-4:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7563
+    ports:
+      - "7563:7560"
+    environment:
+      - API_PORT=7563
+      - INSTANCE_ID=4
+    profiles:
+      - scaled
+
+  mcq-generator-5:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7564
+    ports:
+      - "7564:7560"
+    environment:
+      - API_PORT=7564
+      - INSTANCE_ID=5
+    profiles:
+      - scaled
+
+  mcq-generator-6:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7565
+    ports:
+      - "7565:7560"
+    environment:
+      - API_PORT=7565
+      - INSTANCE_ID=6
+    profiles:
+      - scaled
+
+  mcq-generator-7:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7566
+    ports:
+      - "7566:7560"
+    environment:
+      - API_PORT=7566
+      - INSTANCE_ID=7
+    profiles:
+      - scaled
+
+  mcq-generator-8:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7567
+    ports:
+      - "7567:7560"
+    environment:
+      - API_PORT=7567
+      - INSTANCE_ID=8
+    profiles:
+      - scaled
+
+  mcq-generator-9:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7568
+    ports:
+      - "7568:7560"
+    environment:
+      - API_PORT=7568
+      - INSTANCE_ID=9
+    profiles:
+      - scaled
+
+  mcq-generator-10:
+    extends:
+      file: docker-compose.yml
+      service: mcq-generator-2
+    container_name: mcq-generator-api-7569
+    ports:
+      - "7569:7560"
+    environment:
+      - API_PORT=7569
+      - INSTANCE_ID=10
+    profiles:
+      - scaled

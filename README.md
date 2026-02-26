@@ -51,20 +51,20 @@ The MCQ Generator is a powerful FastAPI-based service for generating multiple-ch
 
 5. **Run the application**:
    ```bash
-   uvicorn mcq_generator.asgi:app --reload --host 0.0.0.0 --port 8000
+   uvicorn mcq_generator.asgi:app --reload --host 0.0.0.0 --port 7560
    ```
 
 ### Using Docker
 
 1. **Build and run with Docker Compose**:
    ```bash
-   docker-compose up --build
+   docker compose up --build
    ```
 
 2. **Access the API**:
-   - API: http://localhost:8000
-   - Documentation: http://localhost:8000/docs
-   - Alternative docs: http://localhost:8000/redoc
+   - API: http://localhost:7560
+   - Documentation: http://localhost:7560/docs
+   - Alternative docs: http://localhost:7560/redoc
 
 ## Configuration
 
@@ -109,7 +109,51 @@ DUMP_RETENTION=200
 
 ### Base URL
 ```
-http://localhost:8000
+http://localhost:7560
+```
+
+### Multi-Instance Deployment
+
+The MCQ Generator supports running multiple instances on consecutive ports (7560+):
+
+#### Single Instance (Default)
+```bash
+docker compose up -d
+# Access: http://localhost:7560
+```
+
+#### Multiple Instances
+```bash
+# Start 3 instances (ports 7560, 7561, 7562)
+docker compose --profile multi-instance up -d
+
+# Scale up to more instances
+python3 scale_instances.py up --count 2
+
+# Scale down
+python3 scale_instances.py down --count 1
+
+# Check status
+python3 scale_instances.py status
+
+# Health check all instances
+python3 scale_instances.py health
+```
+
+#### Load Balanced Deployment
+```bash
+# Start with nginx load balancer
+docker compose --profile load-balanced up -d
+# Single entry point: http://localhost:7560
+```
+
+#### Testing Multiple Instances
+```bash
+# Test all instances
+python3 test_multi_port.py
+
+# Watch mode (continuous testing)
+python3 test_multi_port.py --watch
 ```
 
 ### Main Endpoints

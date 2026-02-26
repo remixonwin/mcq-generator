@@ -59,10 +59,10 @@ USER mcquser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:7652/health || exit 1
 
-# Expose port
-EXPOSE 8000
+# Expose port 7652
+EXPOSE 7652
 
 # Default command
-CMD ["uvicorn", "mcq_generator.asgi:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "mcq_generator.asgi:app", "--host", "0.0.0.0", "--port", "7652"]
