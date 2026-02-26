@@ -51,7 +51,6 @@ def main():
     # Test endpoints
     tests = [
         ("/health", "Health Check"),
-        ("/healthz", "Kubernetes Health Check"),
         ("/ready", "Readiness Probe"),
         ("/metrics", "Metrics Endpoint"),
         ("/docs", "API Documentation"),

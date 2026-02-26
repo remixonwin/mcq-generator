@@ -22,7 +22,7 @@ router = APIRouter()
     "/health",
     response_model=HealthResponse,
     summary="Health check",
-    description="Check if the API and its dependencies are healthy.",
+    description="Check if the API and its dependencies are healthy. Kubernetes compatible.",
     include_in_schema=True,
 )
 def health_check(
@@ -49,35 +49,6 @@ def health_check(
         broker=broker_status,
         version="2.0.0",
     )
-
-
-@router.get(
-    "/healthz",
-    response_model=HealthResponse,
-    summary="Simple health check",
-    description="Lightweight health check endpoint (Kubernetes compatible).",
-    include_in_schema=True,
-)
-def healthz(
-    sm: StateManager = Depends(get_state_manager),
-) -> HealthResponse:
-    """Kubernetes-compatible health check."""
-    try:
-        _ = sm.get_statistics()
-        return HealthResponse(
-            status="ok",
-            db="connected",
-            version="2.0.0",
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "db": str(e),
-                "version": "2.0.0",
-            },
-        )
 
 
 @router.get(
