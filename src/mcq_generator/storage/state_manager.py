@@ -157,6 +157,17 @@ class StateManager:
             )
         """)
 
+        # Job logs for per-job diagnostics and debugging
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_logs (
+                log_id VARCHAR PRIMARY KEY,
+                job_id VARCHAR NOT NULL,
+                level VARCHAR NOT NULL,
+                message VARCHAR NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_checkpoints_job ON checkpoints(job_id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_mcq_job ON mcq_results(job_id)")
@@ -520,6 +531,47 @@ class StateManager:
         except Exception:
             # Non-fatal: continue
             pass
+
+    def add_job_log(self, job_id: str, level: str, message: str) -> None:
+        """Append a log entry for a job (lightweight diagnostics).
+
+        This is best-effort and wrapped in a retry loop to avoid failing the
+        generation pipeline when the DB is under transient load.
+        """
+        import uuid
+
+        log_id = f"{job_id}_log_{uuid.uuid4().hex[:8]}"
+        max_attempts = 3
+        delay = 0.05
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.conn.execute(
+                    "INSERT INTO job_logs (log_id, job_id, level, message) VALUES (?, ?, ?, ?)",
+                    [log_id, job_id, level, message],
+                )
+                break
+            except duckdb.IOException:
+                if attempt == max_attempts:
+                    # Give up silently - logs are best-effort
+                    return
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
+
+    def get_job_logs(self, job_id: str, limit: int = 200) -> list[dict]:
+        """Return recent logs for a job ordered by created_at descending."""
+        rows = self.conn.execute(
+            "SELECT log_id, level, message, created_at FROM job_logs WHERE job_id = ? ORDER BY created_at DESC LIMIT ?",
+            [job_id, limit],
+        ).fetchall()
+
+        out = []
+        for r in rows:
+            created = r[3]
+            if isinstance(created, datetime):
+                created = created.isoformat()
+            out.append({"log_id": r[0], "level": r[1], "message": r[2], "created_at": created})
+        return out
+
 
     def get_job_progress(self, job_id: str) -> dict:
         """Get current progress for a job."""

@@ -1,33 +1,88 @@
+version: '3.8'
+
 services:
-  api:
-    build: .
-    command: ./scripts/run_api.sh --host 0.0.0.0 --port 8000
-    environment:
-      - PYTHONUNBUFFERED=1
-      - PROVIDER_URL=${PROVIDER_URL:-http://provider:7330}
+  # Main MCQ Generator API
+  mcq-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcq-generator-api
     ports:
       - "8000:8000"
-    volumes:
-      - ./:/app
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-
-  # Single‑page React frontend
-  frontend:
-    # build uses the Dockerfile inside frontend/react-ui
-    build:
-      context: ./frontend/react-ui
-      dockerfile: Dockerfile
-    ports:
-      - "3001:80"           # host port 3001 -> container nginx
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8000
+    env_file:
+      - .env
     depends_on:
-      api:
+      redis:
         condition: service_healthy
-    # optional: mount source for dev convenience
     volumes:
-      - ./frontend/react-ui:/app
-    # use same network as api by default
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - mcq-network
+
+  # Celery Worker for background tasks
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcq-generator-worker
+    command: celery -A mcq_generator.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - mcq-network
+
+  # Redis for caching and Celery broker
+  redis:
+    image: redis:7-alpine
+    container_name: mcq-generator-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - mcq-network
+
+  # Redis Commander (optional - for Redis management)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: mcq-generator-redis-ui
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - mcq-network
+    profiles:
+      - tools
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  mcq-network:
+    driver: bridge

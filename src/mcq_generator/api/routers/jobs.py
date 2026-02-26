@@ -26,7 +26,7 @@ from ..schemas import (
     StatusEnum,
     UpdateJobStatusRequest,
 )
-from ..services import JobService
+from ..services import JobService, DatasetService
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,36 @@ def create_job(
     service = JobService(sm)
 
     # Create the job
+# Preflight: probe the dataset to ensure it has usable text
+    try:
+        ds_service = DatasetService()
+        probe = ds_service.probe_dataset(request.dataset)
+    except Exception as e:
+        probe = {"usable": False, "reason": f"probe_error: {e}"}
+
+    if not probe.get("usable"):
+        # Persist a job log entry for easier debugging
+        try:
+            sm.add_job_log("probe_failed", "warning", f"Dataset probe failed for {request.dataset}: {probe.get('reason')}")
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"Dataset preflight failed: {probe.get('reason')}")
+
+    # Create the job
     job = service.create_job(request)
     job_id = job["job_id"]
+
+    # Persist detected text_column from probe if available
+    try:
+        detected_col = probe.get("text_column")
+        if detected_col is not None:
+            sm.update_job_config(job_id, {"text_column": detected_col})
+        # Add a job log with probe sample summary
+        sm.add_job_log(job_id, "info", f"Dataset probe ok: {probe.get('reason')}")
+    except Exception:
+        # Best-effort only
+        pass
+
 
     # Update status to running
     sm.update_job_status(job_id, "running")
