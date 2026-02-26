@@ -13,6 +13,7 @@ from typing import Any
 import duckdb
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 class StateManager:
@@ -79,7 +80,11 @@ class StateManager:
             return False
         try:
             import psutil
+        except ImportError:
+            logger.warning("psutil not installed; stale lock recovery disabled")
+            return False
 
+        try:
             content = lock_file.read_text().strip()
             if content.isdigit():
                 pid = int(content)
