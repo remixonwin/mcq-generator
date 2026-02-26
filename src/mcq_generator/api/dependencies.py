@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 
-from ..state_manager import StateManager
+from ..storage import StateManager
 
 # API Key configuration
 API_KEY_NAME = "X-API-Key"
