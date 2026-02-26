@@ -89,6 +89,14 @@ def download_export(
             detail=f"Job {job_id} not found",
         )
 
+    # Validate job_id to prevent path traversal
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', job_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job_id format",
+        )
+    
     # Determine file path
     file_path = f".mcq_exports/{job_id}.{format.value}"
 
