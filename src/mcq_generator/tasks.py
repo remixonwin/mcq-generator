@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from time import perf_counter
 from typing import Any
 
@@ -18,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Thread pool for background jobs
 _job_futures: dict[str, Future] = {}
+
+# Use a persistent thread pool for background jobs
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def enqueue_generate(
@@ -36,7 +38,7 @@ def enqueue_generate(
     Runs generation in a background thread.
     Returns the job_id.
     """
-    # Always use local thread execution (Celery worker has registration issues)
+    # Always use local thread execution
     future = _run_in_thread(
         job_id=job_id,
         dataset=dataset,
@@ -84,12 +86,10 @@ def _run_in_thread(
     text_column: str | None = "text",
 ) -> Future:
     """Run generation in a background thread."""
-    from concurrent.futures import ThreadPoolExecutor
 
     def _run() -> dict[str, Any]:
         start = perf_counter()
         result = None
-        error = None
         try:
             from .api.tasks import run_generation_job
 
@@ -124,84 +124,6 @@ def _run_in_thread(
                 pass
 
         except Exception as e:
-            error = e
-            logger.exception(f"Background task failed: {e}")
-
-            # Record failure metrics
-            try:
-                from .metrics import inc_job_failed
-
-                inc_job_failed(dataset)
-                try:
-                    from .metrics import push_job_metrics
-
-                    push_job_metrics(job_id, dataset, 0.0, False)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-            raise
-
-        return result
-
-
-# Use a persistent thread pool for background jobs
-_executor = ThreadPoolExecutor(max_workers=4)
-
-
-def _run_in_thread(
-    *,
-    job_id: str,
-    dataset: str,
-    target: int,
-    output: str,
-    checkpoint_interval: int,
-    cache_dir: str,
-    provider_url: str | None,
-    text_column: str | None = "text",
-) -> Future:
-    """Run generation in a background thread."""
-
-    def _run() -> dict[str, Any]:
-        start = perf_counter()
-        result = None
-        error = None
-        try:
-            from .api.tasks import run_generation_job
-
-            asyncio.run(
-                run_generation_job(
-                    job_id=job_id,
-                    dataset=dataset,
-                    target=target,
-                    output=output,
-                    checkpoint_interval=checkpoint_interval,
-                    cache_dir=cache_dir,
-                    provider_url=provider_url,
-                    text_column=text_column,
-                )
-            )
-            result = {"success": True}
-
-            # Record metrics
-            try:
-                from .metrics import inc_job_completed, observe_job_duration
-
-                duration = perf_counter() - start
-                inc_job_completed(dataset)
-                observe_job_duration(dataset, duration)
-                try:
-                    from .metrics import push_job_metrics
-
-                    push_job_metrics(job_id, dataset, duration, True)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        except Exception as e:
-            error = e
             logger.exception(f"Background task failed: {e}")
 
             # Record failure metrics
