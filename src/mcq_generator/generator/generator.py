@@ -16,7 +16,7 @@ from .cache_manager import CacheManager, DuplicateDetector
 from .config import config
 from .filters import DocumentFilter, QualityScorer
 from .provider_client import ProviderClient
-from .state_manager import StateManager
+from ..storage import StateManager
 
 logger = logging.getLogger(__name__)
 
