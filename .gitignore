@@ -27,3 +27,6 @@ frontend/react-ui/.vite/
 *.pyc
 __pycache__/
 
+# local environment file (contains secrets)
+.env
+
