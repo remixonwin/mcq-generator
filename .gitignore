@@ -18,6 +18,8 @@ frontend/react-ui/node_modules/
 frontend/react-ui/dist/
 frontend/react-ui/.cache/
 frontend/react-ui/.vite/
+frontend/react-ui/test-results/
+frontend/react-ui/playwright-report/
 
 # caches, exports, and runtime state
 .mcq_cache/
@@ -30,3 +32,4 @@ __pycache__/
 # local environment file (contains secrets)
 .env
 
+.job_status/
