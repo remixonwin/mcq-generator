@@ -36,7 +36,7 @@ class ProviderClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:7543",
+        base_url: str = "http://localhost:7544",
         timeout: float = 30.0,
         max_connections: int = 10,
         circuit_breaker_threshold: int = 5,

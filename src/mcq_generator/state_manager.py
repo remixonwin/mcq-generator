@@ -8,10 +8,12 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 class StateManager:
@@ -26,8 +28,69 @@ class StateManager:
             db_path = env_path
 
         self.db_path = Path(db_path)
-        self.conn = duckdb.connect(str(self.db_path))
-        self._initialize_schema()
+
+        # Attempt to connect to DuckDB with a small retry/backoff to handle
+        # transient file lock conflicts (common when a background worker has
+        # an open write handle). If we cannot acquire a writable connection
+        # after a few attempts, fall back to a read-only connection so that
+        # callers can still inspect state (listing jobs, viewing progress)
+        # without failing the whole CLI.
+        self.read_only = False
+        max_attempts = 5
+        delay = 0.1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.conn = duckdb.connect(str(self.db_path))
+                break
+            except duckdb.IOException as e:
+                if attempt == max_attempts:
+                    if self._try_recover_from_stale_lock():
+                        logger.info("Recovered from stale lock")
+                        continue
+                    logger.warning(
+                        "Unable to acquire writable DuckDB connection after %d attempts; trying read-only fallback",
+                        max_attempts,
+                    )
+                    try:
+                        self.conn = duckdb.connect(str(self.db_path), read_only=True)
+                        self.read_only = True
+                        logger.info("Connected to DuckDB in read-only mode: %s", self.db_path)
+                        break
+                    except Exception as e2:
+                        logger.error(
+                            "Failed to open DuckDB - a job may be running. Use 'mcq logs <job_id>' to view progress"
+                        )
+                        raise RuntimeError("Database locked by another process") from e2
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
+
+        if not getattr(self, "conn", None):
+            # If for some reason connection isn't set, raise to fail fast
+            raise RuntimeError(f"Failed to connect to DuckDB at {self.db_path}")
+
+        if not self.read_only:
+            self._initialize_schema()
+        else:
+            logger.debug("Skipping schema initialization in read-only mode")
+
+    def _try_recover_from_stale_lock(self) -> bool:
+        """Check if lock-holding process is dead and recover."""
+        lock_file = self.db_path.with_suffix(".lock")
+        if not lock_file.exists():
+            return False
+        try:
+            import psutil
+
+            content = lock_file.read_text().strip()
+            if content.isdigit():
+                pid = int(content)
+                if not psutil.pid_exists(pid):
+                    logger.info("Removing stale lock file from dead process %d", pid)
+                    lock_file.unlink()
+                    return True
+        except Exception:
+            pass
+        return False
 
     def _initialize_schema(self) -> None:
         """Create tables if they don't exist."""
@@ -463,6 +526,9 @@ class StateManager:
         if not result:
             raise ValueError(f"Job {job_id} not found")
 
+        # Always get the real count from mcq_results to ensure accuracy
+        actual_count = self.count_mcq_rows(job_id)
+
         created_at = result[7]
         updated_at = result[8]
         completed_at = result[9]
@@ -498,12 +564,12 @@ class StateManager:
             "total_documents": result[2],
             "target_questions": result[3],
             "processed_count": result[4],
-            "generated_count": result[5],
+            "generated_count": actual_count,
             "status": result[6],
             "created_at": created_at,
             "updated_at": updated_at,
             "completed_at": completed_at,
-            "progress_pct": (result[5] / result[3] * 100) if result[3] > 0 else 0,
+            "progress_pct": (actual_count / result[3] * 100) if result[3] > 0 else 0,
             "config": cfg,
             "text_column": text_column,
             "synth_columns": synth_columns,
@@ -679,6 +745,8 @@ class StateManager:
                         "UPDATE jobs SET completed_at = CURRENT_TIMESTAMP WHERE job_id = ?",
                         [job_id],
                     )
+                    # Sync generated_count to match actual mcq_results count
+                    self.sync_generated_count(job_id)
 
                 # Success
                 break
@@ -697,6 +765,13 @@ class StateManager:
             except Exception:
                 # For any other DB error, re-raise immediately
                 raise
+
+        # Also write lightweight status file for concurrent read access
+        try:
+            progress = self.get_job_progress(job_id) if not self.read_only else {}
+            self.write_job_status_lightweight(job_id, status, progress)
+        except Exception:
+            logger.debug("Failed to write lightweight status file")
 
     def update_total_documents(self, job_id: str, total_documents: int) -> None:
         """Update total_documents for the job (set after loading dataset)."""
@@ -717,18 +792,18 @@ class StateManager:
             created_at_val = row[3]
             if isinstance(created_at_val, datetime):
                 created_at_val = created_at_val.isoformat()
-            
+
             try:
                 parsed = json.loads(row[0])
             except Exception:
                 parsed = {}
-                
+
             synth_raw = row[2]
             try:
                 synth_cols = json.loads(synth_raw) if synth_raw else None
             except Exception:
                 synth_cols = None
-                
+
             mcq = {**parsed, "quality_score": row[1], "created_at": created_at_val}
             if synth_cols is not None:
                 mcq["synth_columns"] = synth_cols
@@ -861,6 +936,48 @@ class StateManager:
             if isinstance(result[6], datetime)
             else str(result[6]),
         }
+
+    def _get_status_file(self, job_id: str) -> Path:
+        """Get path to lightweight status JSON file for a job."""
+        return self.db_path.parent / ".job_status" / f"{job_id}.json"
+
+    def write_job_status_lightweight(
+        self, job_id: str, status: str, progress: dict[str, Any]
+    ) -> None:
+        """Write lightweight status to JSON file for concurrent read access."""
+        status_file = self._get_status_file(job_id)
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "job_id": job_id,
+            "status": status,
+            "progress": progress,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        status_file.write_text(json.dumps(data))
+
+    def read_job_status_lightweight(self, job_id: str) -> dict[str, Any] | None:
+        """Read lightweight status from JSON file. Returns None if not found."""
+        status_file = self._get_status_file(job_id)
+        if not status_file.exists():
+            return None
+        try:
+            return json.loads(status_file.read_text())
+        except Exception:
+            return None
+
+    def list_jobs_lightweight(self) -> list[dict[str, Any]]:
+        """List all jobs from lightweight status files (fallback when DB locked)."""
+        status_dir = self.db_path.parent / ".job_status"
+        if not status_dir.exists():
+            return []
+        jobs = []
+        for status_file in status_dir.glob("*.json"):
+            try:
+                data = json.loads(status_file.read_text())
+                jobs.append(data)
+            except Exception:
+                continue
+        return sorted(jobs, key=lambda x: x.get("updated_at", ""), reverse=True)
 
     def close(self) -> None:
         """Close database connection."""
