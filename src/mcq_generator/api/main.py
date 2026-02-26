@@ -9,6 +9,7 @@ and different deployment scenarios.
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,22 +72,26 @@ def create_app() -> FastAPI:
 
     # Add middleware
     app.add_middleware(GZipMiddleware, minimum_size=1000)
-    
-    # Configure CORS
-    cors_origins = [
-        "http://localhost:43211",  # Frontend Dev
-        "http://127.0.0.1:43211",
-        "http://localhost:37241",  # Current Flutter Web Dev Port
-        "http://localhost:8000",   # Backend itself
-        "http://localhost:43229",  # Flutter Web Dev Port (New)
-        "http://127.0.0.1:43229",
-    ]
-    
+
+    # Configure CORS - allow from environment or default to common dev ports
+    cors_env = os.getenv("CORS_ORIGINS", "")
+    if cors_env:
+        cors_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+    else:
+        cors_origins = [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+        ]
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -112,9 +117,9 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
-                "error": "Internal Server Error", 
+                "error": "Internal Server Error",
                 "message": str(exc) if app.debug else "An unexpected error occurred",
-                "path": request.url.path
+                "path": request.url.path,
             },
         )
 
@@ -123,6 +128,3 @@ def create_app() -> FastAPI:
 
 # Global app instance for ASGI servers
 app = create_app()
-
-
-

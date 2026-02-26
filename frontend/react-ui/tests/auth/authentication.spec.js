@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../utils/test-helpers';
 
 test.describe('Authentication Flow', () => {
   test.beforeEach(async ({ page, context }) => {

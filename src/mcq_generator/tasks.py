@@ -38,7 +38,7 @@ def enqueue_generate(
     Runs generation in a background thread.
     Returns the job_id.
     """
-    # Always use local thread execution
+    # Submit to persistent executor
     future = _run_in_thread(
         job_id=job_id,
         dataset=dataset,
@@ -91,35 +91,40 @@ def _run_in_thread(
         start = perf_counter()
         result = None
         try:
-            from .api.tasks import run_generation_job
+            # Import inside to avoid issues
+            import sys
 
-            asyncio.run(
-                run_generation_job(
-                    job_id=job_id,
-                    dataset=dataset,
-                    target=target,
-                    output=output,
-                    checkpoint_interval=checkpoint_interval,
-                    cache_dir=cache_dir,
-                    provider_url=provider_url,
-                    text_column=text_column,
+            sys.path.insert(0, "/home/remixonwin/Documents/playground/mcq-generator/src")
+            from mcq_generator.api.tasks import run_generation_job_simple
+
+            # Run with a fresh event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    run_generation_job_simple(
+                        job_id=job_id,
+                        dataset=dataset,
+                        target=target,
+                        output=output,
+                        checkpoint_interval=checkpoint_interval,
+                        cache_dir=cache_dir,
+                        provider_url=provider_url,
+                        text_column=text_column,
+                    )
                 )
-            )
+            finally:
+                loop.close()
+
             result = {"success": True}
 
             # Record metrics
             try:
-                from .metrics import inc_job_completed, observe_job_duration
+                from mcq_generator.metrics import inc_job_completed, observe_job_duration
 
                 duration = perf_counter() - start
                 inc_job_completed(dataset)
                 observe_job_duration(dataset, duration)
-                try:
-                    from .metrics import push_job_metrics
-
-                    push_job_metrics(job_id, dataset, duration, True)
-                except Exception:
-                    pass
             except Exception:
                 pass
 
@@ -128,15 +133,9 @@ def _run_in_thread(
 
             # Record failure metrics
             try:
-                from .metrics import inc_job_failed
+                from mcq_generator.metrics import inc_job_failed
 
                 inc_job_failed(dataset)
-                try:
-                    from .metrics import push_job_metrics
-
-                    push_job_metrics(job_id, dataset, 0.0, False)
-                except Exception:
-                    pass
             except Exception:
                 pass
 

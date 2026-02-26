@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../utils/test-helpers';
 import { waitForPageLoad } from '../utils/test-helpers';
 import { mockQuizzes, mockQuestions, mockQuizAttempt } from '../utils/mock-data';
 

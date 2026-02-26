@@ -41,6 +41,12 @@ class StateManager:
         for attempt in range(1, max_attempts + 1):
             try:
                 self.conn = duckdb.connect(str(self.db_path))
+                # Enable better concurrency with WAL mode
+                try:
+                    self.conn.execute("PRAGMA wal_autocheckpoint=1000")
+                    self.conn.execute("PRAGMA synchronous=NORMAL")
+                except Exception as e:
+                    logger.debug(f"Could not set WAL pragmas: {e}")
                 break
             except duckdb.IOException as e:
                 if attempt == max_attempts:

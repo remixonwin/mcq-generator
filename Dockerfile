@@ -1,26 +1,31 @@
 FROM python:3.11-slim
 
-# Set working directory inside container
 WORKDIR /app
 
-# Copy requirements first so we can leverage caching
-COPY requirements.txt ./
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install all dependencies via requirements
-RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r requirements.txt
+# Copy requirements first for better caching
+COPY requirements.txt .
 
-# Copy the rest of the source code
-COPY . .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set PYTHONPATH so the package can be imported from source
-ENV PYTHONPATH=/app/src
+# Copy application code
+COPY src/ ./src/
+COPY .env.example .env.example
 
-# Make sure our helper scripts are executable if they exist
-RUN if [ -f ./scripts/run_api.sh ]; then chmod +x ./scripts/run_api.sh; fi
+# Create cache and output directories
+RUN mkdir -p .mcq_cache .mcq_exports
 
-# Expose default port (documentation only)
+# Expose port
 EXPOSE 8000
 
-# Default command (override with docker-compose or docker run)
-CMD ["bash"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["python", "-c", "from mcq_generator.api.main import app; import uvicorn; uvicorn.run(app, host='0.0.0.0', port=8000)"]

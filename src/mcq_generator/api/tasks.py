@@ -28,12 +28,11 @@ async def run_generation_job(
     cache_dir: str,
     provider_url: str | None,
     text_column: str | None = "text",
-) -> None:
+) -> MCQGenerator:
     """
     Run a generation job in the background.
 
-    This is the actual worker function that generates MCQs.
-    It should be called from background task handlers (Celery, threads, etc.)
+    This is an async generator that yields MCQs as they're generated.
 
     Args:
         job_id: Unique job identifier
@@ -43,6 +42,9 @@ async def run_generation_job(
         checkpoint_interval: How often to save checkpoints
         cache_dir: Cache directory path
         provider_url: Optional custom provider URL
+
+    Yields:
+        MCQ objects as they're generated
     """
     start_time = perf_counter()
 
@@ -63,7 +65,7 @@ async def run_generation_job(
         except Exception as e:
             logger.warning(f"Could not update job status: {e}")
 
-        # Run generation
+        # Run generation - yield each MCQ as it's generated
         async for mcq in gen.generate_from_dataset(
             dataset_name=dataset,
             target_questions=target,
@@ -71,7 +73,7 @@ async def run_generation_job(
             text_column=text_column,
         ):
             # Yield control to allow other tasks
-            await asyncio.sleep(0)
+            yield mcq
 
         # Success
         duration = perf_counter() - start_time
@@ -79,6 +81,88 @@ async def run_generation_job(
         inc_job_completed(dataset)
 
         logger.info(f"Job {job_id} completed successfully in {duration:.2f}s")
+
+    except asyncio.CancelledError:
+        logger.info(f"Job {job_id} was cancelled")
+        try:
+            sm = StateManager()
+            sm.update_job_status(job_id, "paused")
+            sm.close()
+        except Exception:
+            pass
+        raise
+
+    except Exception as e:
+        # Failure
+        logger.exception(f"Job {job_id} failed: {e}")
+        inc_job_failed(dataset)
+
+        try:
+            sm = StateManager()
+            sm.update_job_status(job_id, "failed")
+            sm.close()
+        except Exception:
+            pass
+        raise
+
+    finally:
+        try:
+            await gen.close()
+        except Exception:
+            pass
+
+
+async def run_generation_job_simple(
+    job_id: str,
+    dataset: str,
+    target: int,
+    output: str,
+    checkpoint_interval: int,
+    cache_dir: str,
+    provider_url: str | None,
+    text_column: str | None = "text",
+) -> None:
+    """
+    Simple version that runs generation without yielding (for sync use).
+    """
+    start_time = perf_counter()
+
+    gen = MCQGenerator(
+        provider_url=provider_url or config.PROVIDER_URL,
+        cache_dir=cache_dir,
+        checkpoint_interval=checkpoint_interval,
+    )
+
+    try:
+        logger.info(f"Starting generation job {job_id} for dataset {dataset}")
+
+        # Update job status
+        try:
+            sm = StateManager()
+            sm.update_job_status(job_id, "running")
+            sm.close()
+        except Exception as e:
+            logger.warning(f"Could not update job status: {e}")
+
+        # Run generation - iterate without yielding
+        count = 0
+        async for mcq in gen.generate_from_dataset(
+            dataset_name=dataset,
+            target_questions=target,
+            resume_job_id=job_id,
+            text_column=text_column,
+        ):
+            count += 1
+            await asyncio.sleep(0)  # Yield control
+
+        # Success
+        duration = perf_counter() - start_time
+        observe_job_duration(dataset, duration)
+        inc_job_completed(dataset)
+
+        logger.info(
+            f"Job {job_id} completed successfully in {duration:.2f}s - generated {count} MCQs"
+        )
 
     except asyncio.CancelledError:
         logger.info(f"Job {job_id} was cancelled")
