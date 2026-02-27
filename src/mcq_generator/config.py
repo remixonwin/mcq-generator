@@ -1,9 +1,20 @@
 """
 Configuration manager for environment variables.
+
+Supports loading from:
+1. HashiCorp Vault (when VAULT_ENABLED=true)
+2. Environment variables
+3. .env file (for development)
 """
 
 import os
 from pathlib import Path
+
+# Try to import Vault integration (optional)
+try:
+    from unified.secrets import get_secret as _vault_get_secret
+except ImportError:
+    _vault_get_secret = None
 
 
 class Config:
@@ -37,7 +48,17 @@ class Config:
                     self.env[key.strip()] = value
 
     def get(self, key: str, default: str | None = None) -> str | None:
-        """Get value from .env or environment variables."""
+        """Get value from Vault, .env, or environment variables."""
+        # Try Vault first if available
+        if _vault_get_secret is not None:
+            try:
+                vault_value = _vault_get_secret(key, "mcq-generator", None)
+                if vault_value:
+                    return vault_value
+            except Exception:
+                pass  # Fall back to environment variables
+
+        # Fall back to environment variables
         return self.env.get(key) or os.getenv(key) or default
 
     @property
@@ -143,6 +164,46 @@ class Config:
             return int(self.get("DUMP_RETENTION") or 200)
         except Exception:
             return 200
+
+    @property
+    def MAX_INPUT_LENGTH(self) -> int:  # noqa: N802
+        """Maximum input length in bytes (default 10KB)"""
+        try:
+            return int(self.get("MAX_INPUT_LENGTH") or 10 * 1024)
+        except Exception:
+            return 10 * 1024
+
+    @property
+    def MAX_JSON_DEPTH(self) -> int:  # noqa: N802
+        """Maximum JSON nesting depth"""
+        try:
+            return int(self.get("MAX_JSON_DEPTH") or 10)
+        except Exception:
+            return 10
+
+    @property
+    def MAX_ARRAY_LENGTH(self) -> int:  # noqa: N802
+        """Maximum array length in JSON"""
+        try:
+            return int(self.get("MAX_ARRAY_LENGTH") or 100)
+        except Exception:
+            return 100
+
+    @property
+    def ENABLE_XSS_PROTECTION(self) -> bool:  # noqa: N802
+        """Enable XSS protection for user input"""
+        v = self.get("ENABLE_XSS_PROTECTION")
+        if v is None:
+            return True
+        return str(v).lower() in ("1", "true", "yes", "on")
+
+    @property
+    def ENABLE_PATH_TRAVERSAL_PROTECTION(self) -> bool:  # noqa: N802
+        """Enable path traversal protection for file operations"""
+        v = self.get("ENABLE_PATH_TRAVERSAL_PROTECTION")
+        if v is None:
+            return True
+        return str(v).lower() in ("1", "true", "yes", "on")
 
 
 # Global config instance

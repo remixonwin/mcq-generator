@@ -11,10 +11,49 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+
+# Rate limiting imports
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+# Security imports
+try:
+    from shared.logging import (
+        CorrelationIdMiddleware,
+        RequestResponseLoggingMiddleware,
+        configure_logging,
+    )
+    from shared.security import (
+        RequestSizeLimitMiddleware,
+        SecurityHeadersMiddleware,
+    )
+
+    _SECURITY_AVAILABLE = True
+except ImportError:
+    _SECURITY_AVAILABLE = False
+
+    # Fallback no-op middleware
+    class SecurityHeadersMiddleware:
+        pass
+
+    class RequestSizeLimitMiddleware:
+        pass
+
+    # Fallback logging middleware
+    class CorrelationIdMiddleware:
+        pass
+
+    class RequestResponseLoggingMiddleware:
+        pass
+
+    def configure_logging(*args, **kwargs):
+        pass
+
 
 from .routers import (
     audit_logs,
@@ -31,6 +70,17 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Rate limiting configuration
+RATE_LIMIT_ENABLED = os.getenv("MCQ_RATE_LIMIT_ENABLED", "true").lower() in ("1", "true", "yes")
+RATE_LIMIT_READ_REQUESTS = int(os.getenv("MCQ_RATE_LIMIT_READ_REQUESTS", "100"))
+RATE_LIMIT_READ_WINDOW = os.getenv("MCQ_RATE_LIMIT_READ_WINDOW", "1 minute")
+RATE_LIMIT_WRITE_REQUESTS = int(os.getenv("MCQ_RATE_LIMIT_WRITE_REQUESTS", "10"))
+RATE_LIMIT_WRITE_WINDOW = os.getenv("MCQ_RATE_LIMIT_WRITE_WINDOW", "1 minute")
+RATE_LIMIT_REDIS_URL = os.getenv("MCQ_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+
+# Rate limiter instance
+limiter = Limiter(key_func=get_remote_address)
 
 
 def create_app() -> FastAPI:
@@ -69,6 +119,49 @@ def create_app() -> FastAPI:
     # Add middleware
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+    # Add security middleware if available
+    if _SECURITY_AVAILABLE:
+        try:
+            app.add_middleware(SecurityHeadersMiddleware)
+            app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10 * 1024 * 1024)  # 10MB
+        except Exception as e:
+            logger.warning(f"Could not add security middleware: {e}")
+
+    # Configure rate limiter with Redis storage if enabled
+    if RATE_LIMIT_ENABLED:
+        try:
+            import redis.asyncio as redis
+
+            redis_client = redis.from_url(RATE_LIMIT_REDIS_URL)
+            # Skip ping in synchronous factory, connection will be checked on first request or startup event
+            # await redis_client.ping()
+
+            # Use Redis storage for distributed rate limiting
+            from slowapi._store import RedisRateLimit
+
+            limiter.storage = RedisRateLimit(redis_client)
+            logger.info("Rate limiting enabled with Redis backend")
+        except Exception as e:
+            logger.warning(
+                f"Failed to connect to Redis for rate limiting: {e}. Using in-memory storage."
+            )
+
+    # Add rate limiter to app state
+    app.state.limiter = limiter
+
+    # Add rate limit exception handler
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "Rate limit exceeded",
+                "detail": str(exc.detail),
+                "retry_after": exc.detail,
+            },
+            headers={"Retry-After": str(exc.detail)},
+        )
+
     # Configure CORS - allow from environment or default to common dev ports
     cors_env = os.getenv("CORS_ORIGINS", "")
     if cors_env:
@@ -88,8 +181,15 @@ def create_app() -> FastAPI:
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["*", "X-Correlation-ID"],
     )
+
+    # Add correlation ID and request/response logging middleware
+    try:
+        app.add_middleware(CorrelationIdMiddleware)
+        app.add_middleware(RequestResponseLoggingMiddleware, service_name="mcq-generator")
+    except Exception as e:
+        logger.warning(f"Could not add logging middleware: {e}")
 
     # Include routers
     app.include_router(health, tags=["Health"])

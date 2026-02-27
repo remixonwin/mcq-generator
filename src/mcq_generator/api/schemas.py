@@ -58,6 +58,7 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Service status")
     db: str | None = Field(None, description="Database status")
     broker: str | None = Field(None, description="Message broker status")
+    redis: str | None = Field(None, description="Redis cache status")
     version: str = Field(..., description="API version")
 
 

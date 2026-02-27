@@ -16,16 +16,23 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 
+try:
+    from shared.config import settings as unified_settings
+
+    DEFAULT_DB_PATH = unified_settings.mcq_db_path
+except ImportError:
+    DEFAULT_DB_PATH = os.getenv("MCQ_DB_PATH", "mcq_state.duckdb")
+
+
 class StateManager:
     """
     Manages job state, checkpoints, and progress tracking using DuckDB.
     """
 
-    def __init__(self, db_path: str = "mcq_state.duckdb"):
+    def __init__(self, db_path: str | None = None):
         # Allow overriding DB path via environment variable for tests and deployments
-        env_path = os.getenv("MCQ_DB_PATH")
-        if env_path and (db_path is None or db_path == "mcq_state.duckdb"):
-            db_path = env_path
+        if db_path is None:
+            db_path = DEFAULT_DB_PATH
 
         self.db_path = Path(db_path)
 

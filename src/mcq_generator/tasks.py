@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from time import perf_counter
 from typing import Any
@@ -94,7 +95,12 @@ def _run_in_thread(
             # Import inside to avoid issues
             import sys
 
-            sys.path.insert(0, "/home/remixonwin/Documents/playground/mcq-generator/src")
+            # Get the project root path relative to this file
+            project_root = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            )
+            src_path = os.path.join(project_root, "src")
+            sys.path.insert(0, src_path)
             from mcq_generator.api.tasks import run_generation_job_simple
 
             # Run with a fresh event loop
